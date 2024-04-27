@@ -1,0 +1,11 @@
+dependencies:
+  idf:
+    version: '>=5.0'
+description: C++ wrapper of mbedtls to perform (D)TLS connection
+license: Apache-2.0
+repository: git://github.com/espressif/esp-protocols.git
+repository_info:
+  commit_sha: bd6e12050928464b4357015c7c8c1b215432d580
+  path: components/mbedtls_cxx
+url: https://github.com/espressif/esp-protocols/tree/master/components/mbedtls_cxx
+version: 0.1.0

@@ -1,0 +1,13 @@
+# Target labels
+ bootloader
+# Source files and their labels
+D:/esp32c3/LLM_Assistant/build/CMakeFiles/bootloader
+D:/esp32c3/LLM_Assistant/build/CMakeFiles/bootloader.rule
+D:/esp32c3/LLM_Assistant/build/CMakeFiles/bootloader-complete.rule
+D:/esp32c3/LLM_Assistant/build/bootloader-prefix/src/bootloader-stamp/bootloader-build.rule
+D:/esp32c3/LLM_Assistant/build/bootloader-prefix/src/bootloader-stamp/bootloader-configure.rule
+D:/esp32c3/LLM_Assistant/build/bootloader-prefix/src/bootloader-stamp/bootloader-download.rule
+D:/esp32c3/LLM_Assistant/build/bootloader-prefix/src/bootloader-stamp/bootloader-install.rule
+D:/esp32c3/LLM_Assistant/build/bootloader-prefix/src/bootloader-stamp/bootloader-mkdir.rule
+D:/esp32c3/LLM_Assistant/build/bootloader-prefix/src/bootloader-stamp/bootloader-patch.rule
+D:/esp32c3/LLM_Assistant/build/bootloader-prefix/src/bootloader-stamp/bootloader-update.rule

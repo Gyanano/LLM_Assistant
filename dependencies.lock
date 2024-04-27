@@ -1,0 +1,25 @@
+dependencies:
+  espressif/es8311:
+    component_hash: eacbe7cb7f6993eb0f439121a56663cdfbf95925e7ddf5d2ed5aa640bed476fd
+    source:
+      storage_url: file:///D:/Espressif/registry
+      type: service
+    version: 1.0.0
+  espressif/esp_websocket_client:
+    component_hash: ae561d39222a399ddda5e470913c3d54a3c0f53dce15b8d21a3aaa4226dd74b1
+    source:
+      type: service
+    version: 1.2.3
+  espressif/mbedtls_cxx:
+    component_hash: 83fe527605b4fae781b949a8a60e1e8934988906fe638306e71ac75a92054ab2
+    source:
+      type: service
+    version: 0.1.0
+  idf:
+    component_hash: null
+    source:
+      type: idf
+    version: 5.1.3
+manifest_hash: ef529640962166b25d2d4269c00d321504c90b35b6af499ceecb0b7e22b52133
+target: esp32c3
+version: 1.0.0

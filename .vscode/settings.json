@@ -1,0 +1,16 @@
+{
+    "files.associations": {
+        "util.h": "c",
+        "mic.h": "c",
+        "myi2c.h": "c",
+        "es8311.h": "c",
+        "stdlib.h": "c",
+        "main.h": "c"
+    },
+    "idf.portWin": "COM4",
+    "idf.adapterTargetName": "esp32c3",
+    "idf.openOcdConfigs": [
+        "board/esp32c3-bridge.cfg"
+    ],
+    "idf.flashType": "UART"
+}
