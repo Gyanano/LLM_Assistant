@@ -4822,6 +4822,194 @@
     {
         "children": [
             {
+                "children": [],
+                "depends_on": null,
+                "help": "SSID (network name) for the example to connect to.",
+                "id": "ESP_WIFI_SSID",
+                "name": "ESP_WIFI_SSID",
+                "range": null,
+                "title": "WiFi SSID",
+                "type": "string"
+            },
+            {
+                "children": [],
+                "depends_on": null,
+                "help": "WiFi password (WPA or WPA2) for the example to use.",
+                "id": "ESP_WIFI_PASSWORD",
+                "name": "ESP_WIFI_PASSWORD",
+                "range": null,
+                "title": "WiFi Password",
+                "type": "string"
+            },
+            {
+                "children": [],
+                "depends_on": null,
+                "help": "Maximum retry times to connect to the AP.",
+                "id": "ESP_WIFI_MAXIMUM_RETRY",
+                "name": "ESP_WIFI_MAXIMUM_RETRY",
+                "range": null,
+                "title": "Maximum retry for WiFi connection",
+                "type": "int"
+            },
+            {
+                "children": [],
+                "depends_on": null,
+                "help": "Maximum retry times to connect to the NTP server.",
+                "id": "ESP_WIFI_MAXIMUM_RETRY_NTP",
+                "name": "ESP_WIFI_MAXIMUM_RETRY_NTP",
+                "range": null,
+                "title": "Maximum retry for NTP",
+                "type": "int"
+            },
+            {
+                "children": [
+                    {
+                        "children": [],
+                        "depends_on": "<choice ESP_WIFI_SAE_MODE>",
+                        "help": null,
+                        "id": "ESP_WPA3_SAE_PWE_HUNT_AND_PECK",
+                        "name": "ESP_WPA3_SAE_PWE_HUNT_AND_PECK",
+                        "range": null,
+                        "title": "HUNT AND PECK",
+                        "type": "bool"
+                    },
+                    {
+                        "children": [],
+                        "depends_on": "<choice ESP_WIFI_SAE_MODE>",
+                        "help": null,
+                        "id": "ESP_WPA3_SAE_PWE_HASH_TO_ELEMENT",
+                        "name": "ESP_WPA3_SAE_PWE_HASH_TO_ELEMENT",
+                        "range": null,
+                        "title": "H2E",
+                        "type": "bool"
+                    },
+                    {
+                        "children": [],
+                        "depends_on": "<choice ESP_WIFI_SAE_MODE>",
+                        "help": null,
+                        "id": "ESP_WPA3_SAE_PWE_BOTH",
+                        "name": "ESP_WPA3_SAE_PWE_BOTH",
+                        "range": null,
+                        "title": "BOTH",
+                        "type": "bool"
+                    }
+                ],
+                "depends_on": null,
+                "help": "Select mode for SAE as Hunt and Peck, H2E or both.",
+                "id": "llm_assistant-configuration-wpa3-sae-mode-selection",
+                "name": "ESP_WIFI_SAE_MODE",
+                "title": "WPA3 SAE mode selection",
+                "type": "choice"
+            },
+            {
+                "children": [],
+                "depends_on": "ESP_WPA3_SAE_PWE_HASH_TO_ELEMENT || ESP_WPA3_SAE_PWE_BOTH",
+                "help": "password identifier for SAE H2E",
+                "id": "ESP_WIFI_PW_ID",
+                "name": "ESP_WIFI_PW_ID",
+                "range": null,
+                "title": "PASSWORD IDENTIFIER",
+                "type": "string"
+            },
+            {
+                "children": [
+                    {
+                        "children": [],
+                        "depends_on": "<choice ESP_WIFI_SCAN_AUTH_MODE_THRESHOLD>",
+                        "help": null,
+                        "id": "ESP_WIFI_AUTH_OPEN",
+                        "name": "ESP_WIFI_AUTH_OPEN",
+                        "range": null,
+                        "title": "OPEN",
+                        "type": "bool"
+                    },
+                    {
+                        "children": [],
+                        "depends_on": "<choice ESP_WIFI_SCAN_AUTH_MODE_THRESHOLD>",
+                        "help": null,
+                        "id": "ESP_WIFI_AUTH_WEP",
+                        "name": "ESP_WIFI_AUTH_WEP",
+                        "range": null,
+                        "title": "WEP",
+                        "type": "bool"
+                    },
+                    {
+                        "children": [],
+                        "depends_on": "<choice ESP_WIFI_SCAN_AUTH_MODE_THRESHOLD>",
+                        "help": null,
+                        "id": "ESP_WIFI_AUTH_WPA_PSK",
+                        "name": "ESP_WIFI_AUTH_WPA_PSK",
+                        "range": null,
+                        "title": "WPA PSK",
+                        "type": "bool"
+                    },
+                    {
+                        "children": [],
+                        "depends_on": "<choice ESP_WIFI_SCAN_AUTH_MODE_THRESHOLD>",
+                        "help": null,
+                        "id": "ESP_WIFI_AUTH_WPA2_PSK",
+                        "name": "ESP_WIFI_AUTH_WPA2_PSK",
+                        "range": null,
+                        "title": "WPA2 PSK",
+                        "type": "bool"
+                    },
+                    {
+                        "children": [],
+                        "depends_on": "<choice ESP_WIFI_SCAN_AUTH_MODE_THRESHOLD>",
+                        "help": null,
+                        "id": "ESP_WIFI_AUTH_WPA_WPA2_PSK",
+                        "name": "ESP_WIFI_AUTH_WPA_WPA2_PSK",
+                        "range": null,
+                        "title": "WPA/WPA2 PSK",
+                        "type": "bool"
+                    },
+                    {
+                        "children": [],
+                        "depends_on": "<choice ESP_WIFI_SCAN_AUTH_MODE_THRESHOLD>",
+                        "help": null,
+                        "id": "ESP_WIFI_AUTH_WPA3_PSK",
+                        "name": "ESP_WIFI_AUTH_WPA3_PSK",
+                        "range": null,
+                        "title": "WPA3 PSK",
+                        "type": "bool"
+                    },
+                    {
+                        "children": [],
+                        "depends_on": "<choice ESP_WIFI_SCAN_AUTH_MODE_THRESHOLD>",
+                        "help": null,
+                        "id": "ESP_WIFI_AUTH_WPA2_WPA3_PSK",
+                        "name": "ESP_WIFI_AUTH_WPA2_WPA3_PSK",
+                        "range": null,
+                        "title": "WPA2/WPA3 PSK",
+                        "type": "bool"
+                    },
+                    {
+                        "children": [],
+                        "depends_on": "<choice ESP_WIFI_SCAN_AUTH_MODE_THRESHOLD>",
+                        "help": null,
+                        "id": "ESP_WIFI_AUTH_WAPI_PSK",
+                        "name": "ESP_WIFI_AUTH_WAPI_PSK",
+                        "range": null,
+                        "title": "WAPI PSK",
+                        "type": "bool"
+                    }
+                ],
+                "depends_on": null,
+                "help": "The weakest authmode to accept in the scan mode.\nThis value defaults to ESP_WIFI_AUTH_WPA2_PSK incase password is present and ESP_WIFI_AUTH_OPEN is used.\nPlease select ESP_WIFI_AUTH_WEP/ESP_WIFI_AUTH_WPA_PSK incase AP is operating in WEP/WPA mode.",
+                "id": "llm_assistant-configuration-wifi-scan-auth-mode-threshold",
+                "name": "ESP_WIFI_SCAN_AUTH_MODE_THRESHOLD",
+                "title": "WiFi Scan auth mode threshold",
+                "type": "choice"
+            }
+        ],
+        "depends_on": null,
+        "id": "llm_assistant-configuration",
+        "title": "LLM_Assistant Configuration",
+        "type": "menu"
+    },
+    {
+        "children": [
+            {
                 "children": [
                     {
                         "children": [],

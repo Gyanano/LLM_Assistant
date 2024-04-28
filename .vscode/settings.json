@@ -5,7 +5,11 @@
         "myi2c.h": "c",
         "es8311.h": "c",
         "stdlib.h": "c",
-        "main.h": "c"
+        "main.h": "c",
+        "string.h": "c",
+        "mywifi.h": "c",
+        "xunfei.h": "c",
+        "myws.h": "c"
     },
     "idf.portWin": "COM4",
     "idf.adapterTargetName": "esp32c3",
