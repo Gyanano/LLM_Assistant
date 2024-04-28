@@ -1045,3 +1045,5 @@
 7262	7739	7359392905900336	D:/esp32c3/LLM_Assistant/build/.bin_timestamp	39e1dfdb29edcb7d
 7740	7891	0	esp-idf/esptool_py/CMakeFiles/app_check_size	d481a9e74d3ff54b
 7740	7891	0	D:/esp32c3/LLM_Assistant/build/esp-idf/esptool_py/CMakeFiles/app_check_size	d481a9e74d3ff54b
+0	3471359	0	CMakeFiles/confserver	68c7bc3ac36fa76f
+0	3471359	0	D:/esp32c3/LLM_Assistant/build/CMakeFiles/confserver	68c7bc3ac36fa76f

@@ -1,0 +1,26 @@
+# Compiled output
+*.o
+*.obj
+*.exe
+*.dll
+*.so
+*.dylib
+build/
+
+# IDE folders
+.vscode/
+.idea/
+*.suo
+*.user
+*.sln.docstates
+*.sln.ide-shm
+*.sln.ide-wal
+*.ipch/
+*.ncb
+*.sdf
+*.opensdf
+*.suo
+*.cproj.user
+*.vcxproj.user
+*.vcproj.*
+*.swp
