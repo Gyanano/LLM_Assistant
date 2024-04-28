@@ -4,7 +4,8 @@
 #include "freertos/task.h"
 #include "esp_log.h"
 #include "nvs_flash.h"
-#include "mywifi.h"
+#include "wifi_module.h"
+#include "ws_client.h"
 #include "util.h"
 #include "xunfei.h"
 
@@ -47,6 +48,8 @@ void app_main(void)
     wifi_init_sta();
 
     wifi_sync_time();
+
+    ws_test_app();
 
     char time_str[32];
     get_gmttime(time_str, sizeof(time_str)/sizeof(time_str[0]));

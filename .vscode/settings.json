@@ -9,7 +9,9 @@
         "string.h": "c",
         "mywifi.h": "c",
         "xunfei.h": "c",
-        "myws.h": "c"
+        "myws.h": "c",
+        "wifi_module.h": "c",
+        "ws_client.h": "c"
     },
     "idf.portWin": "COM4",
     "idf.adapterTargetName": "esp32c3",
