@@ -1,4 +1,4 @@
-#include "mywifi.h"
+#include "wifi_module.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/event_groups.h"
@@ -9,7 +9,7 @@
 #include "esp_log.h"
 
 static EventGroupHandle_t s_wifi_event_group;
-static const char *TAG = "MY_WIFI";
+static const char *TAG = "WIFI_MODULE";
 static int s_wifi_retry = 0;
 static int s_ntp_retry = 0;
 

@@ -1,2 +1,2 @@
-idf_component_register(SRCS "mic.c" "xunfei.c" "myws.c" "mywifi.c" "util.c" "main.c"
+idf_component_register(SRCS "mic.c" "xunfei.c" "ws_client.c" "wifi_module.c" "util.c" "main.c"
                     INCLUDE_DIRS ".")
