@@ -13,6 +13,10 @@
 #define CHAT_HOST   "spark-api.xf-yun.com"
 #define CHAT_PATH   "/v3.5/chat"
 
+#define SYSTEM_SETTING  "Now you are a helpful assistant, Acy. You are good at answering people's questions.(Your response should be as concise as possible while ensuring accuracy)"
+
+#define CHAT_MAX_HISTORY 10
+
 /* The STT(Speech To Text) Application */
 #define STT_URL     "ws://iat-api.xfyun.cn/v2/iat"
 #define STT_HOST    "iat-api.xfyun.cn"
@@ -30,6 +34,28 @@ typedef enum {
     MODE_TTS,
     MODE_UNKNOWN
 } app_mode_t;
+
+/* The role of the message */
+typedef enum {
+    MSG_ROLE_SYSTEM = 0,
+    MSG_ROLE_ASSISTANT,
+    MSG_ROLE_USER,
+    MSG_ROLE_UNKNOWN
+} msg_role_t;
+
+/* The chat message block */
+typedef struct {
+    char *role;     // The role of the message, "system", "assistant" or "user" 
+    char *content;  // The content of the message
+    msg_role_t role_type;
+    int length;   // The length of the message
+} chat_msg_t;
+
+/* The chat message history */
+typedef struct {
+    chat_msg_t* msg[CHAT_MAX_HISTORY];
+    int count;
+} chat_history_t;
 
 
 extern void update_auth_url(app_mode_t mode);

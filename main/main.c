@@ -49,8 +49,6 @@ void app_main(void)
 
     wifi_sync_time();
 
-    ws_test_app();
-
     char time_str[32];
     get_gmttime(time_str, sizeof(time_str)/sizeof(time_str[0]));
     ESP_LOGI(TAG, "Current GMT time: %s", time_str);

@@ -6,6 +6,7 @@
 *.so
 *.dylib
 build/
+managed_components/
 
 # IDE folders
 .vscode/

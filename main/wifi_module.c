@@ -126,10 +126,13 @@ void wifi_sync_time(void)
             s_ntp_retry++;
             ESP_LOGW(TAG, "Failed to update system time within 10s timeout, retrying(%d/%d)...", s_ntp_retry, WIFI_MAXIMUM_RETRY_NTP);
             wifi_sync_time();
+        } 
+        else
+        {
+            // If 10s timeout and the s_ntp_retry is greater than WIFI_MAXIMUM_RETRY_NTP, then abort
+            ESP_LOGE(TAG, "Retry times exceeded, aborting...");
+            abort();
         }
-        // If 10s timeout and the s_ntp_retry is greater than WIFI_MAXIMUM_RETRY_NTP, then abort
-        ESP_LOGE(TAG, "Retry times exceeded, aborting...");
-        abort();
     }
     else
     {
