@@ -302,6 +302,14 @@ void parse_chat_response(const char *data)
                 // ESP_LOGI(TAG, "role: %s, content: %s", role->valuestring, content_str->valuestring);
                 // concat the answer
                 strcat(chat_answer, content_str->valuestring);
+                // update the chat history
+                chat_msg_t msg = {
+                    .role = "assistant",
+                    .content = chat_answer,
+                    .role_type = MSG_ROLE_ASSISTANT,
+                    .length = strlen(chat_answer)
+                };
+                update_chat_history(&msg);
                 ESP_LOGI(TAG, "The message is all received!");
             } 
             else

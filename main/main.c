@@ -33,21 +33,22 @@ static void Task_Demo(void *args)
     {
         if (flag == 0)
         {
-            char* temp_p = generate_json_params(APP_ID, MODEL);
-            ESP_LOGI(TAG, "The json params is: %s", temp_p);
+            char* json_str = generate_json_params(APP_ID, MODEL);
+            // ESP_LOGI(TAG, "The json params is: %s", json_str);
 
             // create a WebSocket client
-            ESP_LOGI(TAG, "auth url: %s", xunfei_auth_url);
+            // ESP_LOGI(TAG, "auth url: %s", xunfei_auth_url);
             ws_init_by_uri(&g_client, xunfei_auth_url);
             // register the event handler
             ws_register_event_handler(&g_client, WEBSOCKET_EVENT_ANY, websocket_event_handler);
             // start the WebSocket client
             ws_start(&g_client);
-            esp_websocket_client_send_text(g_client, temp_p, strlen(temp_p), portMAX_DELAY);
+            esp_websocket_client_send_text(g_client, json_str, strlen(json_str), portMAX_DELAY);
             esp_websocket_client_close(g_client, portMAX_DELAY);
             ws_destroy_client(&g_client);
-
-            free_temp_p();
+            free(json_str);
+            json_str = NULL;
+            // free_temp_p();
 
             printf("The final answer: %s\n", chat_answer);
             flag = 1;
@@ -69,8 +70,17 @@ static esp_err_t nvs_init(void)
     return ret;
 }
 
+void enbale_GPIO11(void)
+{
+    printf("ESP_EFUSE_VDD_SPI_AS_GPIO start\n-----------------------------\n");
+    esp_efuse_write_field_bit(ESP_EFUSE_VDD_SPI_AS_GPIO);
+
+}
+
 void app_main(void)
 {
+    enbale_GPIO11();
+    
     ESP_ERROR_CHECK(nvs_init());
 
     wifi_init_sta();
@@ -81,6 +91,7 @@ void app_main(void)
     get_gmttime(time_str, sizeof(time_str)/sizeof(time_str[0]));
     ESP_LOGI(TAG, "Current GMT time: %s", time_str);
 
+    enable_speaker();
     mic_err_t err = mic_init();
     if (err != MIC_OK)
     {
@@ -92,6 +103,9 @@ void app_main(void)
     // The size of stack for this task must be greater than 2048 bytes, 
     // or the program will crash and reboot all the time.
     xTaskCreate(Task_Demo, "Task_Demo", 2048, NULL, 5, NULL);
+
+    /* Echo the sound from MIC in echo mode */
+    xTaskCreate(i2s_echo, "i2s_echo", 8192, NULL, 5, NULL);
 }
 
 static void websocket_event_handler(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data)

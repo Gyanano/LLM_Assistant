@@ -21,12 +21,12 @@
 #define I2S_DI_IO       (GPIO_NUM_7)
 
 /* Other configurations */
-#define I2S_RECV_BUF_SIZE   (5120)
+#define I2S_RECV_BUF_SIZE   (2400)
 #define I2S_SAMPLE_RATE     (8000)
 #define I2S_MCLK_MULTIPLE   (384)
 #define I2S_MCLK_FREQ_HZ    (I2S_SAMPLE_RATE * I2S_MCLK_MULTIPLE)
-#define I2S_VOICE_VOLUME    50
-#define I2S_MIC_GAIN        0
+#define I2S_VOICE_VOLUME    CONFIG_VOICE_VOLUME
+#define I2S_MIC_GAIN        CONFIG_MIC_GAIN
 
 /* Error Type for Mic */
 typedef enum {
@@ -37,9 +37,7 @@ typedef enum {
 } mic_err_t;
 
 
-/**
- * @brief Initialize the microphone
- * 
- * @return mic_err_t 
- */
+
 extern mic_err_t mic_init(void);
+extern void i2s_echo(void *args);
+extern void enable_speaker(void);

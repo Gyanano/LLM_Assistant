@@ -60,7 +60,6 @@ typedef struct {
 
 extern char xunfei_auth_url[352];
 extern char chat_answer[2048];
-extern char *temp_p;
 
 extern void clear_chat_answer(void);
 extern char *generate_json_params(const char* app_id, const char* model_name);

@@ -1,5 +1,6 @@
 #include "mic.h"
 #include "esp_check.h"
+#include <string.h>
 
 static const char *TAG = "MIC";
 static i2s_chan_handle_t tx_handle = NULL;
@@ -29,9 +30,9 @@ static esp_err_t i2s_driver_init(void)
     };
     std_cfg.clk_cfg.mclk_multiple = I2S_MCLK_MULTIPLE;
 
-    // ESP_ERROR_CHECK(i2s_channel_init_std_mode(tx_handle, &std_cfg));
+    ESP_ERROR_CHECK(i2s_channel_init_std_mode(tx_handle, &std_cfg));
     ESP_ERROR_CHECK(i2s_channel_init_std_mode(rx_handle, &std_cfg));
-    // ESP_ERROR_CHECK(i2s_channel_enable(tx_handle));
+    ESP_ERROR_CHECK(i2s_channel_enable(tx_handle));
     ESP_ERROR_CHECK(i2s_channel_enable(rx_handle));
     return ESP_OK;
 }
@@ -69,6 +70,11 @@ static esp_err_t es8311_codec_init(void)
     return ESP_OK;
 }
 
+/**
+ * @brief Initialize the microphone
+ * 
+ * @return mic_err_t 
+ */
 mic_err_t mic_init(void)
 {
     esp_err_t ret = ESP_OK;
@@ -83,4 +89,53 @@ mic_err_t mic_init(void)
     ESP_LOGI(TAG, "es8311 codec initialized");
 
     return MIC_OK;
+}
+
+void enable_speaker(void)
+{
+    /* 初始化PA芯片NS4150B控制引脚 低电平关闭音频输出 高电平允许音频输出 */
+    gpio_config_t io_conf = {
+        .intr_type = GPIO_INTR_DISABLE, //disable interrupt
+        .mode = GPIO_MODE_OUTPUT, //set as output mode
+        .pin_bit_mask = 1<<13, //bit mask of the pins
+        .pull_down_en = 0, //disable pull-down mode
+        .pull_up_en = 1, //enable pull-up mode
+    };
+    //configure GPIO with the given settings
+    gpio_config(&io_conf);
+
+    gpio_set_level(GPIO_NUM_13, 1); // 输出高电平
+}
+
+void i2s_echo(void *args)
+{
+    int *mic_data = malloc(I2S_RECV_BUF_SIZE);
+    if (!mic_data) {
+        ESP_LOGE(TAG, "[echo] No memory for read data buffer");
+        abort();
+    }
+    esp_err_t ret = ESP_OK;
+    size_t bytes_read = 0;
+    size_t bytes_write = 0;
+    ESP_LOGI(TAG, "[echo] Echo start");
+
+    while (1) {
+        memset(mic_data, 0, I2S_RECV_BUF_SIZE);
+        /* Read sample data from mic */
+        ret = i2s_channel_read(rx_handle, mic_data, I2S_RECV_BUF_SIZE, &bytes_read, 1000);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "[echo] i2s read failed, operation timeout");
+            abort();
+        }
+        /* Write sample data to earphone */
+        ret = i2s_channel_write(tx_handle, mic_data, I2S_RECV_BUF_SIZE, &bytes_write, 1000);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "[echo] i2s write failed, operation timeout");
+            abort();
+        }
+        if (bytes_read != bytes_write) {
+            ESP_LOGW(TAG, "[echo] %d bytes read but only %d bytes are written", bytes_read, bytes_write);
+        }
+    }
+    vTaskDelete(NULL);
 }
