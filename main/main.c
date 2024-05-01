@@ -11,18 +11,46 @@
 
 static const char *TAG = "MAIN";
 
+esp_websocket_client_handle_t g_client = NULL;
 
-static void Task_Print(void *args)
+
+static void websocket_event_handler(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data);
+
+
+static void Task_Demo(void *args)
 {
-    int i = 0;
-    ESP_LOGI(TAG, "Task_Print started");
+    int flag = 0;
+    ESP_LOGI(TAG, "Task_Demo started");
     update_auth_url(MODE_CHAT);
+    chat_msg_t msg = {
+        .role_type = MSG_ROLE_USER,
+        .role = "user",
+        .content = "Hello, who are you?",
+        .length = 19
+    };
+    update_chat_history(&msg);
     while (1)
     {
-        if (i < 10)
+        if (flag == 0)
         {
-            ESP_LOGI(TAG, "Hello, world!");
-            i++;
+            char* temp_p = generate_json_params(APP_ID, MODEL);
+            ESP_LOGI(TAG, "The json params is: %s", temp_p);
+
+            // create a WebSocket client
+            ESP_LOGI(TAG, "auth url: %s", xunfei_auth_url);
+            ws_init_by_uri(&g_client, xunfei_auth_url);
+            // register the event handler
+            ws_register_event_handler(&g_client, WEBSOCKET_EVENT_ANY, websocket_event_handler);
+            // start the WebSocket client
+            ws_start(&g_client);
+            esp_websocket_client_send_text(g_client, temp_p, strlen(temp_p), portMAX_DELAY);
+            esp_websocket_client_close(g_client, portMAX_DELAY);
+            ws_destroy_client(&g_client);
+
+            free_temp_p();
+
+            printf("The final answer: %s\n", chat_answer);
+            flag = 1;
         }
         vTaskDelay(1000 / portTICK_PERIOD_MS);
     }
@@ -63,5 +91,39 @@ void app_main(void)
 
     // The size of stack for this task must be greater than 2048 bytes, 
     // or the program will crash and reboot all the time.
-    xTaskCreate(Task_Print, "Task_Print", 2048, NULL, 5, NULL);
+    xTaskCreate(Task_Demo, "Task_Demo", 2048, NULL, 5, NULL);
+}
+
+static void websocket_event_handler(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data)
+{
+    esp_websocket_event_data_t *data = (esp_websocket_event_data_t *)event_data;
+    switch (event_id)
+    {
+    case WEBSOCKET_EVENT_CONNECTED:  // 1
+        ESP_LOGI(TAG, "WEBSOCKET_EVENT_CONNECTED");
+        clear_chat_answer();
+        break;
+    case WEBSOCKET_EVENT_DISCONNECTED:
+        ESP_LOGI(TAG, "WEBSOCKET_EVENT_DISCONNECTED");
+        break;
+    case WEBSOCKET_EVENT_DATA: // 3
+        // ESP_LOGI(TAG, "WEBSOCKET_EVENT_DATA");
+        /*
+            // opcode == 0x08 is a close message
+            // if (data->op_code == 0x08 && data->data_len == 2) {
+            //     ESP_LOGW(TAG, "Received closed message with code=%d", 256 * data->data_ptr[0] + data->data_ptr[1]);
+            // } else {
+            //     ESP_LOGW(TAG, "Received=%.*s\n\n", data->data_len, (char *)data->data_ptr);
+            // }
+
+            // // print the received data
+            // ESP_LOGI(TAG, "Received data: %s", data->data_ptr);
+            // The real data is in data->data_ptr
+        */
+        parse_chat_response((const char *)data->data_ptr);
+        break;
+    case WEBSOCKET_EVENT_ERROR:
+        ESP_LOGI(TAG, "WEBSOCKET_EVENT_ERROR");
+        break;
+    }
 }

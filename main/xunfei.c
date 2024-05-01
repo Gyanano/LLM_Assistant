@@ -5,10 +5,11 @@
 static const char *TAG = "XUNFEI";
 static time_t s_tmp_time;  // The variable for knowing current timestamp
 static char s_xunfei_gmttime[32];  // Gmt time for generating Xunfei signature
-time_t xunfei_time = 0;  // Xunfei timestamp for update every 4 minutes
+static time_t xunfei_time = 0;  // Xunfei timestamp for update every 4 minutes
 char xunfei_auth_url[352];  // The url for Xunfei authorization, the length is always 339
 char *temp_p;  // Temporary pointer for memory allocation
-static chat_history_t s_chat_history;  // The chat history for the chat application
+static chat_history_t s_chat_history = {0};  // The chat history for the chat application
+char chat_answer[2048] = {0};  // The answer to the user
 
 
 /**
@@ -91,22 +92,34 @@ static void generate_url(char *url, char *host, char *path)
     sprintf(xunfei_auth_url, "%s?authorization=%s&date=%s&host=%s", url, auth_base64, replaced_date, host);
 }
 
+/**
+ * Calculates the length of the message buffer based on the role type of the message.
+ *
+ * @param msg: Pointer to the chat_msg_t structure representing the message.
+ * @return The length of the message buffer(including the '\0').
+ */
 int get_msg_buf_length(chat_msg_t *msg)
 {
     switch (msg->role_type)
     {
         case MSG_ROLE_SYSTEM:
-        return 31 + msg->length;
+            return 31 + msg->length;
         case MSG_ROLE_ASSISTANT:
-        return 34 + msg->length;
+            return 34 + msg->length;
         case MSG_ROLE_USER:
-        return 29 + msg->length;
+            return 29 + msg->length;
         default:
-        ESP_LOGW(TAG, "Get the invalid role type when get message block length!");
-        return 0;
+            ESP_LOGW(TAG, "Get the invalid role type when get message block length!");
+            return 0;
     }
 }
 
+/**
+ * Generates a message block string based on the given chat message.
+ *
+ * @param msg: The chat message to generate the message block string from.
+ * @return The generated message block string, or NULL if the message is invalid.
+ */
 char* generate_msg_block_string(chat_msg_t *msg)
 {
     // {"role":"","content":""}  // The length of this string is 24
@@ -124,18 +137,31 @@ char* generate_msg_block_string(chat_msg_t *msg)
     }
 }
 
+/**
+ * Calculates the length of the history buffer.
+ * 
+ * @param history A pointer to the chat_history_t structure containing the chat history.
+ * @return The length of the history buffer.
+ */
 int get_history_buf_length(chat_history_t *history)
 {
-    int len = strlen(SYSTEM_SETTING) + 31;
+    int len = strlen(SYSTEM_SETTING) + 30;  // 155 + 31 = 186
     for (int i = 0; i < history->count; i++)
     {
         len += (get_msg_buf_length(history->msg[i]) - 1);
         if (i < history->count - 1) len += 1;
     }
-    len++;
+    len++; // add the null terminator --- '\0'
     return len;
 }
 
+/**
+ * Generates a history string based on the chat history.
+ * 
+ * @param history: The chat history.
+ * @param history_buf: The buffer to store the generated history string.
+ * @param buf_len: The length of the history buffer.
+ */
 void generate_history_string(chat_history_t *history, char *history_buf, int buf_len)
 {
     // clear the history buffer
@@ -167,6 +193,19 @@ void generate_history_string(chat_history_t *history, char *history_buf, int buf
     }
 }
 
+/**
+ * Generates JSON parameters for a chat application.
+ *
+ * This function takes an app ID and model name as input and generates JSON parameters
+ * for a chat application. The generated JSON parameters include the app ID, a unique
+ * user identifier, and the chat history. The chat history is obtained from the
+ * s_chat_history data structure and converted to a string format.
+ *
+ * @param app_id: The app ID for the chat application.
+ * @param model_name: The model name for the chat application.
+ * @return A pointer to the generated JSON parameters.
+ * @note The caller is responsible for freeing the memory allocated for the JSON parameters.
+ */
 char *generate_json_params(const char* app_id, const char* model_name)
 {
     // uid: The unique identifier of the user, can be any string.
@@ -182,6 +221,15 @@ char *generate_json_params(const char* app_id, const char* model_name)
     return json_params;
 }
 
+/**
+ * @brief Updates the chat history with a new message.
+ * 
+ * This function updates the chat history with a new message. If the chat history is not full, 
+ * the message is added to the end of the history. If the chat history is full, the oldest message 
+ * is removed and the new message is added to the end.
+ * 
+ * @param msg: The message to be added to the chat history.
+ */
 void update_chat_history(chat_msg_t *msg)
 {
     if (s_chat_history.count < CHAT_MAX_HISTORY)
@@ -200,6 +248,87 @@ void update_chat_history(chat_msg_t *msg)
     }
 }
 
+/**
+ * Frees the chat history by deallocating memory for each message.
+ * 
+ * This function iterates over the chat history array and frees the memory
+ * allocated for each message. It also sets the corresponding array element
+ * to NULL. Finally, it resets the count of chat history to 0.
+ */
+void free_chat_history(void)
+{
+    for (int i = 0; i < CHAT_MAX_HISTORY; i++)
+    {
+        if (s_chat_history.msg[i] != NULL)
+        {
+            free(s_chat_history.msg[i]);
+            s_chat_history.msg[i] = NULL;
+        }
+    }
+    s_chat_history.count = 0;
+}
+
+void clear_chat_answer(void)
+{
+    memset(chat_answer, 0, 2048);
+}
+
+void parse_chat_response(const char *data)
+{
+    // ESP_LOGI(TAG, "The response data is: %s", data);
+    // parse the JSON data
+    cJSON *root = cJSON_Parse(data);
+    if (root == NULL)
+    {
+        ESP_LOGW(TAG, "Failed to parse JSON data!");
+    }
+    else
+    {
+        // parse the code
+        cJSON *header = cJSON_GetObjectItem(root, "header");
+        cJSON *code = cJSON_GetObjectItem(header, "code");
+        if (code->valueint == 0)
+        {
+            cJSON *status = cJSON_GetObjectItem(header, "status");
+            // if the header.status is 2, the response is the last one
+            if (status->valueint == 2)
+            {
+                cJSON *payload = cJSON_GetObjectItem(root, "payload");
+                cJSON *choices = cJSON_GetObjectItem(payload, "choices");
+                cJSON *text = cJSON_GetObjectItem(choices, "text");
+                cJSON *content = cJSON_GetArrayItem(text, 0);
+                // cJSON *role = cJSON_GetObjectItem(content, "role");
+                cJSON *content_str = cJSON_GetObjectItem(content, "content");
+                // ESP_LOGI(TAG, "role: %s, content: %s", role->valuestring, content_str->valuestring);
+                // concat the answer
+                strcat(chat_answer, content_str->valuestring);
+                ESP_LOGI(TAG, "The message is all received!");
+            } 
+            else
+            {
+                // ESP_LOGI(TAG, "The status is %d", status->valueint);
+                cJSON *payload = cJSON_GetObjectItem(root, "payload");
+                cJSON *choices = cJSON_GetObjectItem(payload, "choices");
+                cJSON *text = cJSON_GetObjectItem(choices, "text");
+                cJSON *content = cJSON_GetArrayItem(text, 0);
+                // cJSON *role = cJSON_GetObjectItem(content, "role");
+                cJSON *content_str = cJSON_GetObjectItem(content, "content");
+                // ESP_LOGI(TAG, "role: %s, content: %s", role->valuestring, content_str->valuestring);
+                // concat the answer
+                strcat(chat_answer, content_str->valuestring);
+            }
+        }
+        else
+        {
+            cJSON *message = cJSON_GetObjectItem(header, "message");
+            ESP_LOGE(TAG, "The code is %d, request failed!\nThe error is: \"%s\"", code->valueint, message->valuestring);
+        }
+        cJSON_Delete(root);
+    }
+}
+
+
+
 void update_auth_url(app_mode_t mode)
 {
     xunfei_update_time();
@@ -207,10 +336,6 @@ void update_auth_url(app_mode_t mode)
     {
     case MODE_CHAT:
         generate_url(CHAT_URL, CHAT_HOST, CHAT_PATH);
-        ESP_LOGI(TAG, "The auth url is: %s", xunfei_auth_url);
-        temp_p = generate_json_params(APP_ID, MODEL);
-        ESP_LOGI(TAG, "The json params is: %s", temp_p);
-        free_temp_p();
         // ESP_LOGI(TAG, "The auth url is: %s\nThe len of url is: %d", xunfei_auth_url, strlen(xunfei_auth_url));
         break;
     case MODE_STT:
