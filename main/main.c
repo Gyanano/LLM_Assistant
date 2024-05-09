@@ -4,6 +4,7 @@
 #include "freertos/task.h"
 #include "esp_log.h"
 #include "nvs_flash.h"
+#include "bsp_key.h"
 #include "wifi_module.h"
 #include "ws_client.h"
 #include "util.h"
@@ -13,9 +14,17 @@ static const char *TAG = "MAIN";
 
 esp_websocket_client_handle_t g_client = NULL;
 
+static void on_key_down(void)
+{
+    printf("Key pressed\n");
+}
+
+static void on_key_up(void)
+{
+    printf("Key released\n");
+}
 
 static void websocket_event_handler(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data);
-
 
 static void Task_Demo(void *args)
 {
@@ -26,14 +35,13 @@ static void Task_Demo(void *args)
         .role_type = MSG_ROLE_USER,
         .role = "user",
         .content = "Hello, who are you?",
-        .length = 19
-    };
+        .length = 19};
     update_chat_history(&msg);
     while (1)
     {
         if (flag == 0)
         {
-            char* json_str = generate_json_params(APP_ID, MODEL);
+            char *json_str = generate_json_params(APP_ID, MODEL);
             // ESP_LOGI(TAG, "The json params is: %s", json_str);
 
             // create a WebSocket client
@@ -74,21 +82,25 @@ void enbale_GPIO11(void)
 {
     printf("ESP_EFUSE_VDD_SPI_AS_GPIO start\n-----------------------------\n");
     esp_efuse_write_field_bit(ESP_EFUSE_VDD_SPI_AS_GPIO);
-
 }
 
 void app_main(void)
 {
     enbale_GPIO11();
-    
+
     ESP_ERROR_CHECK(nvs_init());
+
+    key_init();
+    install_key_isr();
+    on_key_down_handler_register(on_key_down);
+    on_key_up_handler_register(on_key_up);
 
     wifi_init_sta();
 
     wifi_sync_time();
 
     char time_str[32];
-    get_gmttime(time_str, sizeof(time_str)/sizeof(time_str[0]));
+    get_gmttime(time_str, sizeof(time_str) / sizeof(time_str[0]));
     ESP_LOGI(TAG, "Current GMT time: %s", time_str);
 
     enable_speaker();
@@ -100,9 +112,12 @@ void app_main(void)
     }
     ESP_LOGI(TAG, "Mic init success");
 
-    // The size of stack for this task must be greater than 2048 bytes, 
+    // The size of stack for this task must be greater than 2048 bytes,
     // or the program will crash and reboot all the time.
-    xTaskCreate(Task_Demo, "Task_Demo", 2048, NULL, 5, NULL);
+    // xTaskCreate(Task_Demo, "Task_Demo", 2048, NULL, 5, NULL);
+
+    // key task
+    xTaskCreate(key_scan_task, "key_scan_task", 2048, NULL, 10, NULL);
 
     /* Echo the sound from MIC in echo mode */
     xTaskCreate(i2s_echo, "i2s_echo", 8192, NULL, 5, NULL);
@@ -113,7 +128,7 @@ static void websocket_event_handler(void *handler_args, esp_event_base_t base, i
     esp_websocket_event_data_t *data = (esp_websocket_event_data_t *)event_data;
     switch (event_id)
     {
-    case WEBSOCKET_EVENT_CONNECTED:  // 1
+    case WEBSOCKET_EVENT_CONNECTED: // 1
         ESP_LOGI(TAG, "WEBSOCKET_EVENT_CONNECTED");
         clear_chat_answer();
         break;
