@@ -2,24 +2,25 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
+#include "esp_wifi.h"
+#include "esp_peripherals.h"
+#include "periph_button.h"
+#include "periph_wifi.h"
 #include "audio.h"
 #include "esp_efuse_table.h"
 #include "esp_netif.h"
 #include "audio_idf_version.h"
 #include "nvs_flash.h"
 #include "baidu_access_token.h"
-#include "bsp_key.h"
-#include "bsp_wifi.h"
-#include "ws_client.h"
-#include "util.h"
-#include "xunfei_chat.h"
 #include "baidu_stt.h"
+#include "baidu_tts.h"
+#include "minimax_chat.h"
 
 static const char *TAG = "MAIN";
 
-esp_websocket_client_handle_t g_client = NULL;
-
 char *baidu_access_token = NULL;
+
+const char * minimax_key = "Bearer eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJHcm91cE5hbWUiOiLnq7noqIAiLCJVc2VyTmFtZSI6IuerueiogCIsIkFjY291bnQiOiIiLCJTdWJqZWN0SUQiOiIxNzgyMzYzOTA3MTA5NzAwMDU3IiwiUGhvbmUiOiIxODY3NTEwMjIyMyIsIkdyb3VwSUQiOiIxNzgyMzYzOTA3MTAxMzExNDQ5IiwiUGFnZU5hbWUiOiIiLCJNYWlsIjoiIiwiQ3JlYXRlVGltZSI6IjIwMjQtMDUtMTEgMTE6NDE6NDAiLCJpc3MiOiJtaW5pbWF4In0.ssCMdLz_oa57Ptj1-lK51IYgRzkfFoeHPe0VrIxFoOp0fgyaQ772TOHacfyNNDGGpZYqg-sqGGm8bEJ04gAORuRPQFIF-kXB7vJGJjtImG4BKC6nWJ1yrNb3o6dxgOVoqIADARaRMmjY54tn3JWXBCL_PnOtOAA33gAWlTrDK5oroEgXthk1tR1cP-5R6WYrhByiuIUkGCzz0LK1QqxSII5-7wo7Hmdd55NoTT_NuP53dl9jVUt10MAEeBjVTpXBolngUpbwQdt4ChBEWkzK00f1YIjhrokfGiA2IHuYBlO8sPtDBWLchiEi7NjyKkR1AaOudqnl1FrgnxFDgd0DRg";
 
 // static EventGroupHandle_t my_event_group;
 // #define ALL_REDAY BIT0
@@ -37,11 +38,19 @@ static void ai_chat_task(void *args)
     // periph_cfg.task_stack = 8*1024;
     esp_periph_set_handle_t set = esp_periph_set_init(&periph_cfg);
 
-    // // initialize the button and wifi peripheral
-    esp_periph_handle_t button_handle = key_init();
-    esp_periph_handle_t wifi_handle = wifi_init();
+    periph_wifi_cfg_t wifi_cfg = {
+        .wifi_config.sta.ssid = CONFIG_ESP_WIFI_SSID,
+        .wifi_config.sta.password = CONFIG_ESP_WIFI_PASSWORD,
+    };
+    esp_periph_handle_t wifi_handle = periph_wifi_init(&wifi_cfg);
 
-    // Start button and wifi peripheral
+    // Initialize Button peripheral
+    periph_button_cfg_t btn_cfg = {
+        .gpio_mask = (1ULL << get_input_mode_id()) | (1ULL << get_input_rec_id()),
+    };
+    esp_periph_handle_t button_handle = periph_button_init(&btn_cfg);
+
+    // Start wifi & button peripheral
     esp_periph_start(set, button_handle);
     esp_periph_start(set, wifi_handle);
 
@@ -49,11 +58,9 @@ static void ai_chat_task(void *args)
 
     if (baidu_access_token == NULL)
     {
-        ESP_LOGI(TAG, "baidu_access_token is NULL, get it now");
         // Must freed `baidu_access_token` after used
         baidu_access_token = baidu_get_access_token(CONFIG_BAIDU_ACCESS_KEY, CONFIG_BAIDU_SECRET_KEY);
     }
-    ESP_LOGI(TAG, "baidu_access_token: %s", baidu_access_token);
 
     // init the baidu STT(Speech to Text)
     baidu_stt_config_t stt_config = {
@@ -61,12 +68,18 @@ static void ai_chat_task(void *args)
         .encoding = ENCODING_LINEAR16,
     };
     baidu_stt_handle_t stt = baidu_stt_init(&stt_config);
-    ESP_LOGI(TAG, "baidu_stt_init finished");
+
+    // init the baidu TTS(Text to Speech)
+    baidu_tts_config_t tts_config = {
+        .playback_sample_rate = 16000,
+    };
+    baidu_tts_handle_t tts = baidu_tts_init(&tts_config);
 
     // set the listener
     audio_event_iface_cfg_t evt_cfg = AUDIO_EVENT_IFACE_DEFAULT_CFG();
     audio_event_iface_handle_t evt = audio_event_iface_init(&evt_cfg);
     baidu_stt_set_listener(stt, evt);
+    baidu_tts_set_listener(tts, evt);
 
     audio_event_iface_set_listener(esp_periph_set_get_event_iface(set), evt);
 
@@ -85,11 +98,11 @@ static void ai_chat_task(void *args)
         }
 
         // when the tts finish, close the speaker or its temperature will be high
-        // if (baidu_tts_check_event_finish(tts, &msg)) {
-        //     ESP_LOGI(TAG, "[ * ] TTS Finish");
-        //     es8311_pa_power(false); // 关闭音频
-        //     continue;
-        // }
+        if (baidu_tts_check_event_finish(tts, &msg)) {
+            ESP_LOGI(TAG, "[ * ] TTS Finish");
+            es8311_pa_power(false); // 关闭音频
+            continue;
+        }
 
         // if the event is not from button, do nothing
         if (msg.source_type != PERIPH_ID_BUTTON)
@@ -114,37 +127,31 @@ static void ai_chat_task(void *args)
         // and check the event is from button up or down
         if (msg.cmd == PERIPH_BUTTON_PRESSED)
         {
-            // stop the tts
-            // baidu_tts_stop(tts);
-            // lcd_clear_flag = 1;
+            baidu_tts_stop(tts);
             baidu_stt_start(stt);
         }
         else if (msg.cmd == PERIPH_BUTTON_RELEASE || msg.cmd == PERIPH_BUTTON_LONG_RELEASE)
         {
-            // if the event is from button release, stop the tts
             char *original_text = baidu_stt_stop(stt);
-            // if (original_text == NULL) {
-            //     minimax_content[0]=0; // clear the minimax answer
-            //     continue;
-            // }
+            if (original_text == NULL) {
+                minimax_content[0]=0; // 清空minimax 第1个字符写0就可以
+                continue;
+            }
             ESP_LOGI(TAG, "Original text = %s", original_text);
-            // ask_flag = 1;
 
-            // char *answer = minimax_chat(original_text);
-            // if (answer == NULL)
-            // {
-            //     continue;
-            // }
-            // ESP_LOGI(TAG, "minimax answer = %s", answer);
-            // answer_flag = 1;
-            // es8311_pa_power(true); // open the speaker
-            // baidu_tts_start(tts, answer);
+            char *answer = minimax_chat(original_text);
+            if (answer == NULL)
+            {
+                continue;
+            }
+            ESP_LOGI(TAG, "minimax answer = %s", answer);
+            es8311_pa_power(true); // 打开音频
+            baidu_tts_start(tts, answer);
         }
-
-        vTaskDelay(1000 / portTICK_PERIOD_MS);
     }
     ESP_LOGI(TAG, "Stop audio_pipeline");
     baidu_stt_destroy(stt);
+    baidu_tts_destroy(tts);
     /* Stop all periph before removing the listener */
     esp_periph_set_stop_all(set);
     audio_event_iface_remove_listener(esp_periph_set_get_event_iface(set), evt);
@@ -158,7 +165,7 @@ static void ai_chat_task(void *args)
 void app_main(void)
 {
     // ESP_EFUSE_VDD_SPI_AS_GPIO
-    esp_efuse_write_field_bit(ESP_EFUSE_VDD_SPI_AS_GPIO);
+    // esp_efuse_write_field_bit(ESP_EFUSE_VDD_SPI_AS_GPIO);
     ESP_ERROR_CHECK(nvs_init());
 
     ESP_ERROR_CHECK(esp_netif_init());
@@ -176,27 +183,6 @@ void app_main(void)
         // lv_timer_handler();
     }
 }
-
-// static void websocket_event_handler(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data)
-// {
-//     esp_websocket_event_data_t *data = (esp_websocket_event_data_t *)event_data;
-//     switch (event_id)
-//     {
-//     case WEBSOCKET_EVENT_CONNECTED: // 1
-//         ESP_LOGI(TAG, "WEBSOCKET_EVENT_CONNECTED");
-//         clear_chat_answer();
-//         break;
-//     case WEBSOCKET_EVENT_DISCONNECTED:
-//         ESP_LOGI(TAG, "WEBSOCKET_EVENT_DISCONNECTED");
-//         break;
-//     case WEBSOCKET_EVENT_DATA: // 3
-//         parse_chat_response((const char *)data->data_ptr);
-//         break;
-//     case WEBSOCKET_EVENT_ERROR:
-//         ESP_LOGI(TAG, "WEBSOCKET_EVENT_ERROR");
-//         break;
-//     }
-// }
 
 /* System Configuration */
 static esp_err_t nvs_init(void)

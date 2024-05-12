@@ -8,6 +8,7 @@
 build/
 managed_components/
 main/*.txt
+*.bak
 
 # IDE folders
 .vscode/

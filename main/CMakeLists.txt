@@ -1,6 +1,6 @@
 file(GLOB_RECURSE DEMO_SOURCES *.c)
 
-set(COMPONENT_SRCS "bsp_wifi.c" "baidu_stt.c" "bsp_key.c" "audio.c" "xunfei_chat.c" "ws_client.c" "util.c" "main.c")
+set(COMPONENT_SRCS "baidu_stt.c" "audio.c" "minimax_chat.c" "baidu_tts.c" "main.c")
 set(COMPONENT_ADD_INCLUDEDIRS .)
 
 register_component()

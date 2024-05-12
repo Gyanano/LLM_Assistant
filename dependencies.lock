@@ -10,11 +10,6 @@ dependencies:
       storage_url: file:///D:/Espressif/esp_idf/registry
       type: service
     version: 1.1.1
-  espressif/esp_websocket_client:
-    component_hash: ae561d39222a399ddda5e470913c3d54a3c0f53dce15b8d21a3aaa4226dd74b1
-    source:
-      type: service
-    version: 1.2.3
   espressif/jsmn:
     component_hash: d80350c41bbaa827c98a25b6072df00884e72f54885996fab4a4f0aebce6b6c3
     source:
@@ -37,6 +32,6 @@ dependencies:
     source:
       type: idf
     version: 5.1.3
-manifest_hash: 3cbdac8f636a6ca3f873d23221655d2a883b35e815c2adf75eeaf8a3365cd526
+manifest_hash: 45294d8ca43a54f3511202057f9b3683e9fe21e3b5eaf7e6576457534788a289
 target: esp32c3
 version: 1.0.0

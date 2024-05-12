@@ -1708,12 +1708,6 @@ CONFIG_ESP_LCD_TOUCH_MAX_BUTTONS=1
 # CONFIG_JSMN_STRICT is not set
 # CONFIG_JSMN_STATIC is not set
 # end of jsmn
-
-#
-# ESP WebSocket client
-#
-# CONFIG_ESP_WS_CLIENT_ENABLE_DYNAMIC_BUFFER is not set
-# end of ESP WebSocket client
 # end of Component config
 
 # CONFIG_IDF_EXPERIMENTAL_FEATURES is not set
