@@ -1,0 +1,192 @@
+#include <stdio.h>
+#include "main.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "esp_log.h"
+#include "nvs_flash.h"
+#include "bsp_key.h"
+#include "wifi_module.h"
+#include "ws_client.h"
+#include "util.h"
+#include "xunfei.h"
+#include "baidu_stt.h"
+
+static const char *TAG = "MAIN";
+
+esp_websocket_client_handle_t g_client = NULL;
+char *baidu_access_token = NULL;
+baidu_stt_handle_t stt = NULL;
+
+static void on_key_down(void)
+{
+    printf("Key pressed\n");
+    if (stt != NULL)
+    {
+        baidu_stt_start(stt);
+    }
+}
+
+static void on_key_up(void)
+{
+    printf("Key released\n");
+    if (stt != NULL)
+    {
+        char *text = baidu_stt_stop(stt);
+        if (text != NULL)
+        {
+            printf("The answer text is: %s\n", text);
+        }
+    }
+}
+
+static void websocket_event_handler(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data);
+
+static void Task_Demo(void *args)
+{
+    int flag = 0;
+    ESP_LOGI(TAG, "Task_Demo started");
+    update_auth_url(MODE_CHAT);
+    chat_msg_t msg = {
+        .role_type = MSG_ROLE_USER,
+        .role = "user",
+        .content = "Hello, who are you?",
+        .length = 19};
+    update_chat_history(&msg);
+    while (1)
+    {
+        if (flag == 0)
+        {
+            char *json_str = generate_json_params(APP_ID, MODEL);
+            // ESP_LOGI(TAG, "The json params is: %s", json_str);
+
+            // create a WebSocket client
+            // ESP_LOGI(TAG, "auth url: %s", xunfei_auth_url);
+            ws_init_by_uri(&g_client, xunfei_auth_url);
+            // register the event handler
+            ws_register_event_handler(&g_client, WEBSOCKET_EVENT_ANY, websocket_event_handler);
+            // start the WebSocket client
+            ws_start(&g_client);
+            esp_websocket_client_send_text(g_client, json_str, strlen(json_str), portMAX_DELAY);
+            esp_websocket_client_close(g_client, portMAX_DELAY);
+            ws_destroy_client(&g_client);
+            free(json_str);
+            json_str = NULL;
+            // free_temp_p();
+
+            printf("The final answer: %s\n", chat_answer);
+            flag = 1;
+        }
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
+    }
+    vTaskDelete(NULL);
+}
+
+static void ai_chat_task(void *args)
+{
+    ESP_LOGI(TAG, "ai_chat_task started");
+    
+    // init the baidu STT(Speech to Text)
+    baidu_stt_config_t stt_config = {
+        .record_sample_rates = 16000,
+        .encoding = ENCODING_LINEAR16,
+    };
+    stt = baidu_stt_init(&stt_config);
+
+    // set the listener
+    audio_event_iface_cfg_t evt_cfg = AUDIO_EVENT_IFACE_DEFAULT_CFG();
+    audio_event_iface_handle_t evt = audio_event_iface_init(&evt_cfg);
+    baidu_stt_set_listener(stt, evt);
+
+    ESP_LOGI(TAG, "All Ready!");
+    while (1)
+    {
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
+    }
+    vTaskDelete(NULL);
+}
+
+static esp_err_t nvs_init(void)
+{
+    // Initialize NVS
+    esp_err_t ret = nvs_flash_init();
+    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND)
+    {
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        ret = nvs_flash_init();
+    }
+    return ret;
+}
+
+void app_main(void)
+{
+    // ESP_EFUSE_VDD_SPI_AS_GPIO, 
+    esp_efuse_write_field_bit(ESP_EFUSE_VDD_SPI_AS_GPIO);
+
+    ESP_ERROR_CHECK(nvs_init());
+
+    key_init();
+    install_key_isr();
+    on_key_down_handler_register(on_key_down);
+    on_key_up_handler_register(on_key_up);
+
+    wifi_init_sta();
+    wifi_sync_time();
+
+    char time_str[32];
+    get_gmttime(time_str, sizeof(time_str) / sizeof(time_str[0]));
+    ESP_LOGI(TAG, "Current GMT time: %s", time_str);
+
+    enable_speaker();
+    mic_err_t err = mic_init();
+    if (err != MIC_OK)
+    {
+        ESP_LOGE(TAG, "Mic init failed: %d", err);
+        return;
+    }
+    ESP_LOGI(TAG, "Mic init success");
+
+    // The size of stack for this task must be greater than 2048 bytes,
+    // or the program will crash and reboot all the time.
+    // xTaskCreate(Task_Demo, "Task_Demo", 2048, NULL, 5, NULL);
+
+    // key task
+    xTaskCreate(key_scan_task, "key_scan_task", 2048, NULL, 10, NULL);
+
+    // AI chat task
+    xTaskCreate(ai_chat_task, "ai_chat_task", 8192, NULL, 5, NULL);
+    
+}
+
+static void websocket_event_handler(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data)
+{
+    esp_websocket_event_data_t *data = (esp_websocket_event_data_t *)event_data;
+    switch (event_id)
+    {
+    case WEBSOCKET_EVENT_CONNECTED: // 1
+        ESP_LOGI(TAG, "WEBSOCKET_EVENT_CONNECTED");
+        clear_chat_answer();
+        break;
+    case WEBSOCKET_EVENT_DISCONNECTED:
+        ESP_LOGI(TAG, "WEBSOCKET_EVENT_DISCONNECTED");
+        break;
+    case WEBSOCKET_EVENT_DATA: // 3
+        // ESP_LOGI(TAG, "WEBSOCKET_EVENT_DATA");
+        /*
+            // opcode == 0x08 is a close message
+            // if (data->op_code == 0x08 && data->data_len == 2) {
+            //     ESP_LOGW(TAG, "Received closed message with code=%d", 256 * data->data_ptr[0] + data->data_ptr[1]);
+            // } else {
+            //     ESP_LOGW(TAG, "Received=%.*s\n\n", data->data_len, (char *)data->data_ptr);
+            // }
+
+            // // print the received data
+            // ESP_LOGI(TAG, "Received data: %s", data->data_ptr);
+            // The real data is in data->data_ptr
+        */
+        parse_chat_response((const char *)data->data_ptr);
+        break;
+    case WEBSOCKET_EVENT_ERROR:
+        ESP_LOGI(TAG, "WEBSOCKET_EVENT_ERROR");
+        break;
+    }
+}
