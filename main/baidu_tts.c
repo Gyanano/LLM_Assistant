@@ -82,7 +82,7 @@ static esp_err_t _http_stream_reader_event_handle(http_stream_event_msg_t *msg)
 
 baidu_tts_handle_t baidu_tts_init(baidu_tts_config_t *config)
 {
-    // 管道设置
+    // audio pipipeline init
     audio_pipeline_cfg_t pipeline_cfg = DEFAULT_AUDIO_PIPELINE_CONFIG();
     baidu_tts_t *tts = calloc(1, sizeof(baidu_tts_t));
     AUDIO_MEM_CHECK(TAG, tts, return NULL);
@@ -99,13 +99,13 @@ baidu_tts_handle_t baidu_tts_init(baidu_tts_config_t *config)
 
     tts->sample_rate = config->playback_sample_rate;
 
-    // I2S流设置
+    // i2s stream configuration
     i2s_stream_cfg_t i2s_cfg = I2S_STREAM_CFG_DEFAULT_WITH_PARA(0, 16000, 16, AUDIO_STREAM_WRITER);
     i2s_cfg.std_cfg.slot_cfg.slot_mode = I2S_SLOT_MODE_MONO;
     i2s_cfg.std_cfg.slot_cfg.slot_mask = I2S_STD_SLOT_LEFT;
     tts->i2s_writer = i2s_stream_init(&i2s_cfg);
 
-    // http流设置
+    // http stream configuration
     http_stream_cfg_t http_cfg = {
         .type = AUDIO_STREAM_READER,
         .event_handle = _http_stream_reader_event_handle,
@@ -114,7 +114,7 @@ baidu_tts_handle_t baidu_tts_init(baidu_tts_config_t *config)
     };
     tts->http_stream_reader = http_stream_init(&http_cfg);
 
-    // MP3流设置
+    // MP3 stream configuration
     mp3_decoder_cfg_t mp3_cfg = DEFAULT_MP3_DECODER_CONFIG();
     tts->mp3_decoder = mp3_decoder_init(&mp3_cfg);
 
@@ -124,7 +124,7 @@ baidu_tts_handle_t baidu_tts_init(baidu_tts_config_t *config)
     const char *link_tag[3] = {"tts_http", "tts_mp3", "tts_i2s"};
     audio_pipeline_link(tts->pipeline, &link_tag[0], 3);
 
-    // I2S流采样率 位数等设置
+    // set the i2s parameters
     i2s_stream_set_clk(tts->i2s_writer, config->playback_sample_rate, 16, 1);
     return tts;
 exit_tts_init:

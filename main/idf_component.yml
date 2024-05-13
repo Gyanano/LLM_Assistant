@@ -1,3 +1,4 @@
 ## IDF Component Manager Manifest File
 dependencies:
+  lvgl/lvgl: "~8.3.0"
   espressif/esp_lcd_touch_ft5x06: "^1.0.6"
