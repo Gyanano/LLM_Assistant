@@ -102,7 +102,7 @@ char *minimax_chat(const char *text)
         char *reply = cJSON_GetObjectItem(root,"reply")->valuestring;
         strcpy(minimax_content, reply);
         response_text = minimax_content;
-        ESP_LOGI(TAG, "response_text:%s", response_text);
+        ESP_LOGI(TAG, "response_text(minimax):%s", response_text);
     }
 
     cJSON_Delete(root);

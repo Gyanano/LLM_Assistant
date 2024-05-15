@@ -1,7 +1,6 @@
 #include "board.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "esp_log.h"
 #include "audio_idf_version.h"
 #include "esp_wifi.h"
 #include "esp_http_client.h"
@@ -10,22 +9,39 @@
 #include "periph_button.h"
 #include "periph_wifi.h"
 #include "nvs_flash.h"
+#include "esp_efuse_table.h"
 #include "baidu_tts.h"
 #include "baidu_stt.h"
-#include "minimax_chat.h"
 #include "esp_netif.h"
-#include <string.h>
 #include "esp_timer.h"
 #include "lvgl.h"
-#include "driver/ledc.h"
-#include "lv_gui.h"
+#include "esp_log.h"
+#include <string.h>
+#include "main.h"
 #include "esp_lcd_touch_ft5x06.h"
+#include "esp_netif_sntp.h"
+#include "esp_sntp.h"
+#include "cJSON.h"
+#include "zlib.h"
+#include "esp_crt_bundle.h"
+#include "esp_tls.h"
+
+#if USE_MINIMAX
+#include "minimax_chat.h"
+#elif USE_DEEPSEEK
+#include "deepseek_chat.h"
+#endif
 
 static const char *TAG = "MAIN";
 
 char *baidu_access_token = NULL;
 
+// if the USE_MODEL == MINIMAX, you need to set the minimax_key
+#if USE_MINIMAX
 const char *minimax_key = "Bearer eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJHcm91cE5hbWUiOiLnq7noqIAiLCJVc2VyTmFtZSI6IuerueiogCIsIkFjY291bnQiOiIiLCJTdWJqZWN0SUQiOiIxNzgyMzYzOTA3MTA5NzAwMDU3IiwiUGhvbmUiOiIxODY3NTEwMjIyMyIsIkdyb3VwSUQiOiIxNzgyMzYzOTA3MTAxMzExNDQ5IiwiUGFnZU5hbWUiOiIiLCJNYWlsIjoiIiwiQ3JlYXRlVGltZSI6IjIwMjQtMDUtMTEgMTE6NDE6NDAiLCJpc3MiOiJtaW5pbWF4In0.ssCMdLz_oa57Ptj1-lK51IYgRzkfFoeHPe0VrIxFoOp0fgyaQ772TOHacfyNNDGGpZYqg-sqGGm8bEJ04gAORuRPQFIF-kXB7vJGJjtImG4BKC6nWJ1yrNb3o6dxgOVoqIADARaRMmjY54tn3JWXBCL_PnOtOAA33gAWlTrDK5oroEgXthk1tR1cP-5R6WYrhByiuIUkGCzz0LK1QqxSII5-7wo7Hmdd55NoTT_NuP53dl9jVUt10MAEeBjVTpXBolngUpbwQdt4ChBEWkzK00f1YIjhrokfGiA2IHuYBlO8sPtDBWLchiEi7NjyKkR1AaOudqnl1FrgnxFDgd0DRg";
+#elif USE_DEEPSEEK
+const char *deepseek_key = "Bearer sk-82acc135ebc34f638a4b0ffa43a1e3fb";
+#endif
 
 #define LCD_HOST SPI2_HOST
 #define LCD_PIXEL_CLOCK_HZ (20 * 1000 * 1000)
@@ -50,7 +66,14 @@ int answer_flag = 0;
 int lcd_clear_flag = 0;
 
 static EventGroupHandle_t my_event_group;
-#define ALL_REDAY BIT0
+#define WIFI_CONNECTED BIT0
+#define TIME_SYNCED BIT1
+#define WEATHER_GET BIT2
+
+float bg_duty; // 液晶屏背光占空比 范围0~100%
+
+extern void lv_main_page(void);
+extern void lv_gui_start(void);
 
 static esp_err_t nvs_init(void);
 
@@ -129,8 +152,8 @@ static void example_lvgl_touch_cb(lv_indev_drv_t *drv, lv_indev_data_t *data)
 
 extern lv_obj_t *label1;
 extern lv_obj_t *label2;
+extern int is_in_app;
 extern char ask_text[256];
-extern char minimax_content[2048];
 
 void value_update_cb(lv_timer_t *timer)
 {
@@ -141,7 +164,11 @@ void value_update_cb(lv_timer_t *timer)
     }
     if (answer_flag == 1)
     {
+#if USE_MINIMAX
         lv_label_set_text_fmt(label2, "AI：%s", minimax_content);
+#elif USE_DEEPSEEK
+        lv_label_set_text_fmt(label2, "AI：%s", deepseek_content);
+#endif
         answer_flag = 0;
     }
     if (lcd_clear_flag == 1)
@@ -154,8 +181,9 @@ void value_update_cb(lv_timer_t *timer)
 
 static void main_page_task(void *pvParameters)
 {
-    xEventGroupWaitBits(my_event_group, ALL_REDAY, pdFALSE, pdFALSE, portMAX_DELAY);
-    vTaskDelay(pdMS_TO_TICKS(3000));
+    ESP_LOGI(TAG, "main_page_task");
+    xEventGroupWaitBits(my_event_group, WEATHER_GET, pdFALSE, pdFALSE, portMAX_DELAY);
+    // vTaskDelay(pdMS_TO_TICKS(3000));
     lv_obj_clean(lv_scr_act());
     lv_main_page();
     lv_timer_create(value_update_cb, 100, NULL); // create a lv_timer for update the chat message
@@ -164,12 +192,12 @@ static void main_page_task(void *pvParameters)
     {
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
-
     vTaskDelete(NULL);
 }
 
 static void ai_chat_task(void *args)
 {
+    // 只有用户在菜单中选择了AI聊天功能，才会开启AI聊天任务
     ESP_LOGI(TAG, "ai_chat_task started");
 
     /* Peripheral Manager */
@@ -223,95 +251,382 @@ static void ai_chat_task(void *args)
 
     audio_event_iface_set_listener(esp_periph_set_get_event_iface(set), evt);
 
-    // ESP_LOGI(TAG, "All Ready!");
+    ESP_LOGI(TAG, "Chat app Ready!");
+    printf("in app_main the min free stack size is %d \r\n", (int32_t)uxTaskGetStackHighWaterMark(NULL));
     // set the event, to update the screen display
-    xEventGroupSetBits(my_event_group, ALL_REDAY);
+    xEventGroupSetBits(my_event_group, WIFI_CONNECTED);
 
     while (1)
     {
-        audio_event_iface_msg_t msg;
-        if (audio_event_iface_listen(evt, &msg, portMAX_DELAY) != ESP_OK)
+        if (is_in_app != 2)
         {
-            ESP_LOGW(TAG, "[ * ] Event process failed: src_type:%d, source:%p cmd:%d, data:%p, data_len:%d",
-                     msg.source_type, msg.source, msg.cmd, msg.data, msg.data_len);
+            // 说明此时不是在聊天界面，则不再进行下面的逻辑
+            vTaskDelay(pdMS_TO_TICKS(100));
             continue;
         }
 
-        // when the tts finish, close the speaker or its temperature will be high
-        if (baidu_tts_check_event_finish(tts, &msg))
+        // 只要处于聊天模式，就一直循环
+        while (is_in_app == 2)
         {
-            ESP_LOGI(TAG, "[ * ] TTS Finish");
-            es8311_pa_power(false); // close the speaker
-            continue;
-        }
-
-        // if the event is not from button, do nothing
-        if (msg.source_type != PERIPH_ID_BUTTON)
-        {
-            continue;
-        }
-
-        // if the program comes here, it means the event is from button,
-        // check the button id, if it is other button, break the loop and stop the task
-        if ((int)msg.data == get_input_mode_id())
-        {
-            break;
-        }
-
-        // if the button is not the record button, do nothing
-        if ((int)msg.data != get_input_rec_id())
-        {
-            continue;
-        }
-
-        // if the program comes here, it means the button is the record button,
-        // and check the event is from button up or down
-        if (msg.cmd == PERIPH_BUTTON_PRESSED)
-        {
-            baidu_tts_stop(tts);
-            lcd_clear_flag = 1;
-            baidu_stt_start(stt);
-        }
-        else if (msg.cmd == PERIPH_BUTTON_RELEASE || msg.cmd == PERIPH_BUTTON_LONG_RELEASE)
-        {
-            char *original_text = baidu_stt_stop(stt);
-            if (original_text == NULL)
+            audio_event_iface_msg_t msg;
+            if (audio_event_iface_listen(evt, &msg, portMAX_DELAY) != ESP_OK)
             {
-                minimax_content[0] = 0; // clear the minimax_content, just make the first element be 0
+                ESP_LOGW(TAG, "[ * ] Event process failed: src_type:%d, source:%p cmd:%d, data:%p, data_len:%d",
+                         msg.source_type, msg.source, msg.cmd, msg.data, msg.data_len);
                 continue;
             }
-            ESP_LOGI(TAG, "Original text = %s", original_text);
-            ask_flag = 1;
-            
-            char *answer = minimax_chat(original_text);
-            if (answer == NULL)
+
+            // when the tts finish, close the speaker or its temperature will be high
+            if (baidu_tts_check_event_finish(tts, &msg))
+            {
+                ESP_LOGI(TAG, "[ * ] TTS Finish");
+                es8311_pa_power(false); // close the speaker
+                continue;
+            }
+
+            // if the event is not from button, do nothing
+            if (msg.source_type != PERIPH_ID_BUTTON)
             {
                 continue;
             }
-            ESP_LOGI(TAG, "minimax answer = %s", answer);
-            answer_flag = 1;
-            es8311_pa_power(true); // open the speaker
-            baidu_tts_start(tts, answer);
+
+            // if the program comes here, it means the event is from button,
+            // check the button id, if it is other button, break the loop and stop the task
+            if ((int)msg.data == get_input_mode_id())
+            {
+                break;
+            }
+
+            // if the button is not the record button, do nothing
+            if ((int)msg.data != get_input_rec_id())
+            {
+                continue;
+            }
+
+            // if the program comes here, it means the button is the record button,
+            // and check the event is from button up or down
+            if (msg.cmd == PERIPH_BUTTON_PRESSED)
+            {
+                baidu_tts_stop(tts);
+                lcd_clear_flag = 1;
+                baidu_stt_start(stt);
+            }
+            else if (msg.cmd == PERIPH_BUTTON_RELEASE || msg.cmd == PERIPH_BUTTON_LONG_RELEASE)
+            {
+                char *original_text = baidu_stt_stop(stt);
+                if (original_text == NULL)
+                {
+#if USE_MINIMAX
+                    minimax_content[0] = 0; // clear the minimax_content, just make the first element be 0
+#elif USE_DEEPSEEK
+                    deepseek_content[0] = 0; // clear the deepseek_content, just make the first element be 0
+#endif
+                    continue;
+                }
+                ESP_LOGI(TAG, "Original text = %s", original_text);
+                ask_flag = 1;
+#if USE_MINIMAX
+                char *answer = minimax_chat(original_text);
+#elif USE_DEEPSEEK
+                char *answer = deepseek_chat(original_text);
+#endif
+                if (answer == NULL)
+                {
+                    continue;
+                }
+                ESP_LOGI(TAG, "Answer = %s", answer);
+                answer_flag = 1;
+                es8311_pa_power(true); // open the speaker
+                baidu_tts_start(tts, answer);
+            }
         }
+        ESP_LOGI(TAG, "Stop audio_pipeline");
+        baidu_stt_destroy(stt);
+        baidu_tts_destroy(tts);
+        /* Stop all periph before removing the listener */
+        esp_periph_set_stop_all(set);
+        audio_event_iface_remove_listener(esp_periph_set_get_event_iface(set), evt);
+
+        /* Make sure audio_pipeline_remove_listener & audio_event_iface_remove_listener are called before destroying event_iface */
+        audio_event_iface_destroy(evt);
+        esp_periph_set_destroy(set);
     }
-    ESP_LOGI(TAG, "Stop audio_pipeline");
-    baidu_stt_destroy(stt);
-    baidu_tts_destroy(tts);
-    /* Stop all periph before removing the listener */
-    esp_periph_set_stop_all(set);
-    audio_event_iface_remove_listener(esp_periph_set_get_event_iface(set), evt);
+    vTaskDelete(NULL);
+}
 
-    /* Make sure audio_pipeline_remove_listener & audio_event_iface_remove_listener are called before destroying event_iface */
-    audio_event_iface_destroy(evt);
-    esp_periph_set_destroy(set);
+// create variables to store the time
+time_t now;
+struct tm timeinfo;
+
+static void sync_time_task(void *args)
+{
+    ESP_LOGI(TAG, "sync time task");
+    xEventGroupWaitBits(my_event_group, WIFI_CONNECTED, pdFALSE, pdFALSE, portMAX_DELAY);
+    
+    char *data_buf = NULL; 
+
+    // ntp 会冲突，先使用 http 同步时间
+    // 从拼多多的接口获取时间：https://api.pinduoduo.com/api/server/_stm
+    esp_http_client_config_t config = {
+        .url = "https://api.pinduoduo.com/api/server/_stm",
+    };
+    esp_http_client_handle_t client = esp_http_client_init(&config);
+
+    if (esp_http_client_open(client, 512) != ESP_OK) {
+        ESP_LOGE(TAG, "Error opening connection");
+        goto exit_time_sync;
+    }
+    int data_length = esp_http_client_fetch_headers(client);
+    data_buf = malloc(data_length + 1);
+    if(data_buf == NULL) {
+        goto exit_time_sync;
+    }
+    data_buf[data_length] = '\0';
+    int rlen = esp_http_client_read(client, data_buf, data_length);
+    data_buf[rlen] = '\0';
+    ESP_LOGI(TAG, "read = %s", data_buf);
+
+    cJSON *root = cJSON_Parse(data_buf);
+    int time_val = cJSON_GetObjectItem(root, "server_time")->valueint;
+    ESP_LOGI(TAG, "time = %d", time_val);
+    cJSON_Delete(root);
+
+    xEventGroupSetBits(my_event_group, TIME_SYNCED);
+
+exit_time_sync:
+    free(data_buf);
+    esp_http_client_cleanup(client);
+
+    vTaskDelete(NULL);
+}
+
+/* Get weather */
+esp_err_t _http_event_handler(esp_http_client_event_t *evt)
+{
+    static char *output_buffer; // Buffer to store response of http request from event handler
+    static int output_len;      // Stores number of bytes read
+    switch (evt->event_id)
+    {
+    case HTTP_EVENT_ERROR:
+        ESP_LOGD(TAG, "HTTP_EVENT_ERROR");
+        break;
+    case HTTP_EVENT_ON_CONNECTED:
+        ESP_LOGD(TAG, "HTTP_EVENT_ON_CONNECTED");
+        break;
+    case HTTP_EVENT_HEADER_SENT:
+        ESP_LOGD(TAG, "HTTP_EVENT_HEADER_SENT");
+        break;
+    case HTTP_EVENT_ON_HEADER:
+        ESP_LOGD(TAG, "HTTP_EVENT_ON_HEADER, key=%s, value=%s", evt->header_key, evt->header_value);
+        break;
+    case HTTP_EVENT_ON_DATA:
+        ESP_LOGD(TAG, "HTTP_EVENT_ON_DATA, len=%d", evt->data_len);
+        if (!esp_http_client_is_chunked_response(evt->client))
+        {
+            // If user_data buffer is configured, copy the response into the buffer
+            int copy_len = 0;
+            if (evt->user_data)
+            {
+                copy_len = MIN(evt->data_len, (2048 - output_len));
+                if (copy_len)
+                {
+                    memcpy(evt->user_data + output_len, evt->data, copy_len);
+                }
+            }
+            else
+            {
+                const int buffer_len = esp_http_client_get_content_length(evt->client);
+                if (output_buffer == NULL)
+                {
+                    output_buffer = (char *)malloc(buffer_len);
+                    output_len = 0;
+                    if (output_buffer == NULL)
+                    {
+                        ESP_LOGE(TAG, "Failed to allocate memory for output buffer");
+                        return ESP_FAIL;
+                    }
+                }
+                copy_len = MIN(evt->data_len, (buffer_len - output_len));
+                if (copy_len)
+                {
+                    memcpy(output_buffer + output_len, evt->data, copy_len);
+                }
+            }
+            output_len += copy_len;
+        }
+
+        break;
+    case HTTP_EVENT_ON_FINISH:
+        ESP_LOGD(TAG, "HTTP_EVENT_ON_FINISH");
+        if (output_buffer != NULL)
+        {
+            // Response is accumulated in output_buffer. Uncomment the below line to print the accumulated response
+            // ESP_LOG_BUFFER_HEX(TAG, output_buffer, output_len);
+            free(output_buffer);
+            output_buffer = NULL;
+        }
+        output_len = 0;
+        break;
+    case HTTP_EVENT_DISCONNECTED:
+        ESP_LOGI(TAG, "HTTP_EVENT_DISCONNECTED");
+        int mbedtls_err = 0;
+        esp_err_t err = esp_tls_get_and_clear_last_error((esp_tls_error_handle_t)evt->data, &mbedtls_err, NULL);
+        if (err != 0)
+        {
+            ESP_LOGI(TAG, "Last esp error code: 0x%x", err);
+            ESP_LOGI(TAG, "Last mbedtls failure: 0x%x", mbedtls_err);
+        }
+        if (output_buffer != NULL)
+        {
+            free(output_buffer);
+            output_buffer = NULL;
+        }
+        output_len = 0;
+        break;
+    case HTTP_EVENT_REDIRECT:
+        ESP_LOGD(TAG, "HTTP_EVENT_REDIRECT");
+        esp_http_client_set_header(evt->client, "From", "user@example.com");
+        esp_http_client_set_header(evt->client, "Accept", "text/html");
+        esp_http_client_set_redirection(evt->client);
+        break;
+    }
+    return ESP_OK;
+}
+
+// GZIP解压函数
+int gzDecompress(char *src, int srcLen, char *dst, int *dstLen)
+{
+    z_stream strm;
+    strm.zalloc = Z_NULL;
+    strm.zfree = Z_NULL;
+    strm.opaque = Z_NULL;
+
+    strm.avail_in = srcLen;
+    strm.avail_out = *dstLen;
+    strm.next_in = (Bytef *)src;
+    strm.next_out = (Bytef *)dst;
+
+    int err = -1;
+    err = inflateInit2(&strm, 31); // 初始化
+    if (err == Z_OK)
+    {
+        printf("inflateInit2 err=Z_OK\n");
+        err = inflate(&strm, Z_FINISH); // 解压gzip数据
+        if (err == Z_STREAM_END)        // 解压成功
+        {
+            printf("inflate err=Z_OK\n");
+            *dstLen = strm.total_out;
+        }
+        else // 解压失败
+        {
+            printf("inflate err=!Z_OK\n");
+        }
+        inflateEnd(&strm);
+    }
+    else
+    {
+        printf("inflateInit2 err! err=%d\n", err);
+    }
+
+    return err;
+}
+
+int qwnow_temp; // 实时天气温度
+int qwnow_humi; // 实时天气湿度
+
+static int get_now_weather(void)
+{
+    char local_response_buffer[2048] = {0};
+    int client_code = 0;
+    int64_t gzip_len = 0;
+    int res = 0;
+
+    esp_http_client_config_t config = {
+        .url = "https://devapi.qweather.com/v7/weather/now?&location=101280102&key=52f795b81e974f46b5f0a533c0372ff1",
+        .event_handler = _http_event_handler,
+        .crt_bundle_attach = esp_crt_bundle_attach,
+        .user_data = local_response_buffer,
+    };
+    esp_http_client_handle_t client = esp_http_client_init(&config);
+    esp_err_t err = esp_http_client_perform(client);
+
+    if (err == ESP_OK)
+    {
+        client_code = esp_http_client_get_status_code(client);
+        gzip_len = esp_http_client_get_content_length(client);
+        ESP_LOGI(TAG, "HTTPS Status = %d, content_length = %" PRIu64, client_code, gzip_len);
+    }
+    else
+    {
+        ESP_LOGE(TAG, "Error perform http request %s", esp_err_to_name(err));
+    }
+
+    if (client_code == 200)
+    {
+        int buffSize = 2048;
+        char *buffData = (char *)malloc(2048);
+        memset(buffData, 0, 2048);
+
+        int ret = gzDecompress(local_response_buffer, gzip_len, buffData, &buffSize);
+
+        if (Z_STREAM_END == ret)
+        {
+            printf("now weather decompress success\n");
+            printf("buffSize = %d\n", buffSize);
+
+            cJSON *root = cJSON_Parse(buffData);
+            cJSON *now = cJSON_GetObjectItem(root, "now");
+
+            char *temp = cJSON_GetObjectItem(now, "temp")->valuestring;
+            char *icon = cJSON_GetObjectItem(now, "icon")->valuestring;
+            char *humidity = cJSON_GetObjectItem(now, "humidity")->valuestring;
+
+            qwnow_temp = atoi(temp);
+            qwnow_humi = atoi(humidity);
+
+            ESP_LOGI(TAG, "地区：小店区");
+            ESP_LOGI(TAG, "温度：%d", qwnow_temp);
+            ESP_LOGI(TAG, "湿度：%d", qwnow_humi);
+
+            cJSON_Delete(root);
+
+            res = 0;
+        }
+        else
+        {
+            printf("decompress failed:%d\n", ret);
+            res = -1;
+        }
+        free(buffData);
+    }
+    else
+    {
+        res = -1;
+    }
+    esp_http_client_cleanup(client);
+
+    return res;
+}
+
+static void get_weather_task(void *args)
+{
+    ESP_LOGI(TAG, "get weather task");
+    xEventGroupWaitBits(my_event_group, TIME_SYNCED, pdFALSE, pdFALSE, portMAX_DELAY);
+
+    int res = get_now_weather();
+    if (res == 0)
+    {
+        xEventGroupSetBits(my_event_group, WEATHER_GET);
+    }
+    
     vTaskDelete(NULL);
 }
 
 void app_main(void)
 {
-    // ESP_EFUSE_VDD_SPI_AS_GPIO
-    // esp_efuse_write_field_bit(ESP_EFUSE_VDD_SPI_AS_GPIO);
     ESP_ERROR_CHECK(nvs_init());
+    // ESP_EFUSE_VDD_SPI_AS_GPIO
+    esp_efuse_write_field_bit(ESP_EFUSE_VDD_SPI_AS_GPIO);
 
     ESP_ERROR_CHECK(esp_netif_init());
 
@@ -416,8 +731,7 @@ void app_main(void)
 
     const esp_timer_create_args_t lvgl_tick_timer_args = {
         .callback = &example_increase_lvgl_tick,
-        .name = "lvgl_tick"
-    };
+        .name = "lvgl_tick"};
     esp_timer_handle_t lvgl_tick_timer = NULL;
     ESP_ERROR_CHECK(esp_timer_create(&lvgl_tick_timer_args, &lvgl_tick_timer));
     ESP_ERROR_CHECK(esp_timer_start_periodic(lvgl_tick_timer, LVGL_TICK_PERIOD_MS * 1000));
@@ -433,6 +747,8 @@ void app_main(void)
 
     /* Initialize the lcd backlight */
     lcd_brightness_init();
+    // 设置占空比
+    bg_duty = 0.5;                                                                         // 0.5表示占空比是50%
     ESP_ERROR_CHECK(ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, 8191 * (1 - 0.5))); // 设置占空比 0.5表示占空比是50%
     ESP_ERROR_CHECK(ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0));                // 更新背光
 
@@ -440,7 +756,9 @@ void app_main(void)
 
     lv_gui_start();
 
-    xTaskCreate(main_page_task, "main_page_task", 8192, NULL, 5, NULL);
+    xTaskCreate(main_page_task, "main_page_task", 2048, NULL, 5, NULL);
+    xTaskCreate(get_weather_task, "get_weather_task", 1024, NULL, 5, NULL);
+    xTaskCreate(sync_time_task, "sync_time_task", 512, NULL, 5, NULL);
     // AI chat task
     xTaskCreate(ai_chat_task, "ai_chat_task", 8192, NULL, 5, NULL);
 
