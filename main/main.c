@@ -7,7 +7,6 @@
 #include "baidu_access_token.h"
 #include "esp_peripherals.h"
 #include "periph_button.h"
-#include "periph_wifi.h"
 #include "nvs_flash.h"
 #include "esp_efuse_table.h"
 #include "baidu_tts.h"
@@ -67,8 +66,10 @@ int lcd_clear_flag = 0;
 
 static EventGroupHandle_t my_event_group;
 #define WIFI_CONNECTED BIT0
-#define TIME_SYNCED BIT1
-#define WEATHER_GET BIT2
+#define GET_SNTP BIT1
+#define GET_DAILYWEATHER BIT2
+#define GET_RTWEATHER BIT3
+#define GET_WEATHER BIT4
 
 float bg_duty; // 液晶屏背光占空比 范围0~100%
 
@@ -150,6 +151,8 @@ static void example_lvgl_touch_cb(lv_indev_drv_t *drv, lv_indev_data_t *data)
     }
 }
 
+// lvgl 的对象和全局变量
+extern lv_obj_t *time_label;
 extern lv_obj_t *label1;
 extern lv_obj_t *label2;
 extern int is_in_app;
@@ -157,32 +160,51 @@ extern char ask_text[256];
 
 void value_update_cb(lv_timer_t *timer)
 {
-    if (ask_flag == 1)
+    static int cnt = 0;
+    // 负责更新时间，但频次为每秒一次
+    if (is_in_app == 1)
     {
-        lv_label_set_text_fmt(label1, "我：%s", ask_text);
-        ask_flag = 0;
+        ESP_LOGI(TAG, "time update");
+        if (++cnt > 10)
+        {
+            cnt = 0;
+            time(&now);
+            localtime_r(&now, &timeinfo);
+            lv_label_set_text_fmt(time_label, "%02d:%02d:%02d", timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
+        }
     }
-    if (answer_flag == 1)
+    else if (is_in_app == 2)
     {
+        ESP_LOGI(TAG, "chatting");
+        // 负责更新聊天内容
+        if (ask_flag == 1)
+        {
+            lv_label_set_text_fmt(label1, "我：%s", ask_text);
+            ask_flag = 0;
+        }
+        if (answer_flag == 1)
+        {
 #if USE_MINIMAX
-        lv_label_set_text_fmt(label2, "AI：%s", minimax_content);
+            lv_label_set_text_fmt(label2, "AI：%s", minimax_content);
 #elif USE_DEEPSEEK
-        lv_label_set_text_fmt(label2, "AI：%s", deepseek_content);
+            lv_label_set_text_fmt(label2, "AI：%s", deepseek_content);
 #endif
-        answer_flag = 0;
+            answer_flag = 0;
+        }
+        if (lcd_clear_flag == 1)
+        {
+            lcd_clear_flag = 0;
+            lv_label_set_text(label1, "我：");
+            lv_label_set_text(label2, "AI：");
+        }
     }
-    if (lcd_clear_flag == 1)
-    {
-        lcd_clear_flag = 0;
-        lv_label_set_text(label1, "我：");
-        lv_label_set_text(label2, "AI：");
-    }
+
 }
 
 static void main_page_task(void *pvParameters)
 {
     ESP_LOGI(TAG, "main_page_task");
-    xEventGroupWaitBits(my_event_group, WEATHER_GET, pdFALSE, pdFALSE, portMAX_DELAY);
+    xEventGroupWaitBits(my_event_group, GET_WEATHER, pdFALSE, pdFALSE, portMAX_DELAY);
     // vTaskDelay(pdMS_TO_TICKS(3000));
     lv_obj_clean(lv_scr_act());
     lv_main_page();
@@ -195,22 +217,23 @@ static void main_page_task(void *pvParameters)
     vTaskDelete(NULL);
 }
 
+/**
+ * 按键部分
+ */
+// TODO
+/**
+ * AI 聊天部分
+ */
 static void ai_chat_task(void *args)
 {
     // 只有用户在菜单中选择了AI聊天功能，才会开启AI聊天任务
     ESP_LOGI(TAG, "ai_chat_task started");
+    xEventGroupWaitBits(my_event_group, WIFI_CONNECTED, pdFALSE, pdFALSE, portMAX_DELAY);
 
     /* Peripheral Manager */
     // Initialize peripherals management
     esp_periph_config_t periph_cfg = DEFAULT_ESP_PERIPH_SET_CONFIG();
-    // periph_cfg.task_stack = 8*1024;
     esp_periph_set_handle_t set = esp_periph_set_init(&periph_cfg);
-
-    periph_wifi_cfg_t wifi_cfg = {
-        .wifi_config.sta.ssid = CONFIG_ESP_WIFI_SSID,
-        .wifi_config.sta.password = CONFIG_ESP_WIFI_PASSWORD,
-    };
-    esp_periph_handle_t wifi_handle = periph_wifi_init(&wifi_cfg);
 
     // Initialize Button peripheral
     periph_button_cfg_t btn_cfg = {
@@ -218,11 +241,8 @@ static void ai_chat_task(void *args)
     };
     esp_periph_handle_t button_handle = periph_button_init(&btn_cfg);
 
-    // Start wifi & button peripheral
+    // Start button peripheral
     esp_periph_start(set, button_handle);
-    esp_periph_start(set, wifi_handle);
-
-    periph_wifi_wait_for_connected(wifi_handle, portMAX_DELAY);
 
     if (baidu_access_token == NULL)
     {
@@ -253,8 +273,6 @@ static void ai_chat_task(void *args)
 
     ESP_LOGI(TAG, "Chat app Ready!");
     printf("in app_main the min free stack size is %d \r\n", (int32_t)uxTaskGetStackHighWaterMark(NULL));
-    // set the event, to update the screen display
-    xEventGroupSetBits(my_event_group, WIFI_CONNECTED);
 
     while (1)
     {
@@ -265,7 +283,9 @@ static void ai_chat_task(void *args)
             continue;
         }
 
-        // 只要处于聊天模式，就一直循环
+        ESP_LOGW(TAG, "is_in_app is 2!");
+
+        // FIX: 这个地方由于操作系统的现场保存和恢复似乎不能总是获取最新的值
         while (is_in_app == 2)
         {
             audio_event_iface_msg_t msg;
@@ -288,13 +308,6 @@ static void ai_chat_task(void *args)
             if (msg.source_type != PERIPH_ID_BUTTON)
             {
                 continue;
-            }
-
-            // if the program comes here, it means the event is from button,
-            // check the button id, if it is other button, break the loop and stop the task
-            if ((int)msg.data == get_input_mode_id())
-            {
-                break;
             }
 
             // if the button is not the record button, do nothing
@@ -354,53 +367,13 @@ static void ai_chat_task(void *args)
     vTaskDelete(NULL);
 }
 
-// create variables to store the time
-time_t now;
-struct tm timeinfo;
+/**
+ * 获取天气部分
+ */
+#define MAX_HTTP_OUTPUT_BUFFER 2048
+char g_temp[10];     // 实时天气温度
+char g_humidity[10]; // 实时天气湿度
 
-static void sync_time_task(void *args)
-{
-    ESP_LOGI(TAG, "sync time task");
-    xEventGroupWaitBits(my_event_group, WIFI_CONNECTED, pdFALSE, pdFALSE, portMAX_DELAY);
-    
-    char *data_buf = NULL; 
-
-    // ntp 会冲突，先使用 http 同步时间
-    // 从拼多多的接口获取时间：https://api.pinduoduo.com/api/server/_stm
-    esp_http_client_config_t config = {
-        .url = "https://api.pinduoduo.com/api/server/_stm",
-    };
-    esp_http_client_handle_t client = esp_http_client_init(&config);
-
-    if (esp_http_client_open(client, 512) != ESP_OK) {
-        ESP_LOGE(TAG, "Error opening connection");
-        goto exit_time_sync;
-    }
-    int data_length = esp_http_client_fetch_headers(client);
-    data_buf = malloc(data_length + 1);
-    if(data_buf == NULL) {
-        goto exit_time_sync;
-    }
-    data_buf[data_length] = '\0';
-    int rlen = esp_http_client_read(client, data_buf, data_length);
-    data_buf[rlen] = '\0';
-    ESP_LOGI(TAG, "read = %s", data_buf);
-
-    cJSON *root = cJSON_Parse(data_buf);
-    int time_val = cJSON_GetObjectItem(root, "server_time")->valueint;
-    ESP_LOGI(TAG, "time = %d", time_val);
-    cJSON_Delete(root);
-
-    xEventGroupSetBits(my_event_group, TIME_SYNCED);
-
-exit_time_sync:
-    free(data_buf);
-    esp_http_client_cleanup(client);
-
-    vTaskDelete(NULL);
-}
-
-/* Get weather */
 esp_err_t _http_event_handler(esp_http_client_event_t *evt)
 {
     static char *output_buffer; // Buffer to store response of http request from event handler
@@ -531,94 +504,213 @@ int gzDecompress(char *src, int srcLen, char *dst, int *dstLen)
     return err;
 }
 
-int qwnow_temp; // 实时天气温度
-int qwnow_humi; // 实时天气湿度
-
-static int get_now_weather(void)
+static void get_now_weather(void)
 {
-    char local_response_buffer[2048] = {0};
-    int client_code = 0;
+    char local_response_buffer[MAX_HTTP_OUTPUT_BUFFER] = {0};
+    int https_status = 0;
     int64_t gzip_len = 0;
-    int res = 0;
+    int dstBufLen = 1024;
+    char* dstBuf= (char*)malloc(1024);
+    
+    memset(dstBuf, 0, 1024);
 
     esp_http_client_config_t config = {
-        .url = "https://devapi.qweather.com/v7/weather/now?&location=101280102&key=52f795b81e974f46b5f0a533c0372ff1",
+        .url = "https://devapi.qweather.com/v7/weather/now?location=101280102&key=52f795b81e974f46b5f0a533c0372ff1",
         .event_handler = _http_event_handler,
         .crt_bundle_attach = esp_crt_bundle_attach,
-        .user_data = local_response_buffer,
+        .user_data = local_response_buffer,        // Pass address of local buffer to get response
     };
     esp_http_client_handle_t client = esp_http_client_init(&config);
     esp_err_t err = esp_http_client_perform(client);
 
-    if (err == ESP_OK)
-    {
-        client_code = esp_http_client_get_status_code(client);
-        gzip_len = esp_http_client_get_content_length(client);
-        ESP_LOGI(TAG, "HTTPS Status = %d, content_length = %" PRIu64, client_code, gzip_len);
-    }
-    else
-    {
+    https_status = esp_http_client_get_status_code(client);
+    gzip_len = esp_http_client_get_content_length(client);
+
+    if (err == ESP_OK) {
+        ESP_LOGI(TAG, "HTTPS Status = %d, content_length = %"PRIu64, https_status, gzip_len);
+    } else {
         ESP_LOGE(TAG, "Error perform http request %s", esp_err_to_name(err));
-    }
-
-    if (client_code == 200)
-    {
-        int buffSize = 2048;
-        char *buffData = (char *)malloc(2048);
-        memset(buffData, 0, 2048);
-
-        int ret = gzDecompress(local_response_buffer, gzip_len, buffData, &buffSize);
-
-        if (Z_STREAM_END == ret)
-        {
-            printf("now weather decompress success\n");
-            printf("buffSize = %d\n", buffSize);
-
-            cJSON *root = cJSON_Parse(buffData);
-            cJSON *now = cJSON_GetObjectItem(root, "now");
-
-            char *temp = cJSON_GetObjectItem(now, "temp")->valuestring;
-            char *icon = cJSON_GetObjectItem(now, "icon")->valuestring;
-            char *humidity = cJSON_GetObjectItem(now, "humidity")->valuestring;
-
-            qwnow_temp = atoi(temp);
-            qwnow_humi = atoi(humidity);
-
-            ESP_LOGI(TAG, "地区：小店区");
-            ESP_LOGI(TAG, "温度：%d", qwnow_temp);
-            ESP_LOGI(TAG, "湿度：%d", qwnow_humi);
-
-            cJSON_Delete(root);
-
-            res = 0;
-        }
-        else
-        {
-            printf("decompress failed:%d\n", ret);
-            res = -1;
-        }
-        free(buffData);
-    }
-    else
-    {
-        res = -1;
     }
     esp_http_client_cleanup(client);
 
-    return res;
+    if (https_status == 200)
+    {
+        int ret = gzDecompress(local_response_buffer, gzip_len, dstBuf, &dstBufLen);
+
+        if (Z_STREAM_END == ret) { /* 解压成功 */
+            printf("decompress success\n");
+            printf("dstBufLen = %d\n", dstBufLen);
+            cJSON *root = cJSON_Parse(dstBuf);
+            cJSON *now = cJSON_GetObjectItem(root,"now");
+            char *temp = cJSON_GetObjectItem(now,"temp")->valuestring;
+            char *humidity = cJSON_GetObjectItem(now,"humidity")->valuestring;
+            strcpy(g_temp, temp);
+            strcpy(g_humidity, humidity);
+            ESP_LOGI(TAG, "地区：广州市番禺区");
+            ESP_LOGI(TAG, "温度：%s", temp);
+            ESP_LOGI(TAG, "湿度：%s", humidity);
+            cJSON_Delete(root);
+            free(dstBuf);
+        }
+        else {
+            printf("decompress failed:%d\n", ret);
+            free(dstBuf);
+        }
+    }
 }
 
-static void get_weather_task(void *args)
+static void get_weather_task(void *pvParameters)
 {
-    ESP_LOGI(TAG, "get weather task");
-    xEventGroupWaitBits(my_event_group, TIME_SYNCED, pdFALSE, pdFALSE, portMAX_DELAY);
+    xEventGroupWaitBits(my_event_group, GET_SNTP, pdFALSE, pdFALSE, portMAX_DELAY);
+    get_now_weather();
+    ESP_LOGI(TAG, "get_weather_task finish!");
+    xEventGroupSetBits(my_event_group, GET_WEATHER);
 
-    int res = get_now_weather();
-    if (res == 0)
+    vTaskDelete(NULL);
+}
+
+/*******************
+ ***** WIFI 部分*****
+ ********************/
+static EventGroupHandle_t s_wifi_event_group;
+static int s_retry_num = 0;
+#define WIFI_CONNECTED_BIT BIT0
+#define WIFI_FAIL_BIT BIT1
+
+static void event_handler(void *arg, esp_event_base_t event_base,
+                          int32_t event_id, void *event_data)
+{
+    if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START)
     {
-        xEventGroupSetBits(my_event_group, WEATHER_GET);
+        esp_wifi_connect();
     }
-    
+    else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED)
+    {
+        if (s_retry_num < 5)
+        {
+            esp_wifi_connect();
+            s_retry_num++;
+            ESP_LOGI(TAG, "retry to connect to the AP");
+        }
+        else
+        {
+            xEventGroupSetBits(s_wifi_event_group, WIFI_FAIL_BIT);
+        }
+        ESP_LOGI(TAG, "connect to the AP fail");
+    }
+    else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP)
+    {
+        ip_event_got_ip_t *event = (ip_event_got_ip_t *)event_data;
+        ESP_LOGI(TAG, "got ip:" IPSTR, IP2STR(&event->ip_info.ip));
+        s_retry_num = 0;
+        xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
+    }
+}
+
+void wifi_init_sta(void)
+{
+    s_wifi_event_group = xEventGroupCreate();
+
+    ESP_ERROR_CHECK(esp_netif_init());
+
+    ESP_ERROR_CHECK(esp_event_loop_create_default());
+    esp_netif_create_default_wifi_sta();
+
+    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+    ESP_ERROR_CHECK(esp_wifi_init(&cfg));
+
+    esp_event_handler_instance_t instance_any_id;
+    esp_event_handler_instance_t instance_got_ip;
+    ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT,
+                                                        ESP_EVENT_ANY_ID,
+                                                        &event_handler,
+                                                        NULL,
+                                                        &instance_any_id));
+    ESP_ERROR_CHECK(esp_event_handler_instance_register(IP_EVENT,
+                                                        IP_EVENT_STA_GOT_IP,
+                                                        &event_handler,
+                                                        NULL,
+                                                        &instance_got_ip));
+
+    wifi_config_t wifi_config = {
+        .sta = {
+            .ssid = CONFIG_ESP_WIFI_SSID,
+            .password = CONFIG_ESP_WIFI_PASSWORD,
+        },
+    };
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
+    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
+    ESP_ERROR_CHECK(esp_wifi_start());
+
+    ESP_LOGI(TAG, "wifi_init_sta finished.");
+
+    /* Waiting until either the connection is established (WIFI_CONNECTED_BIT) or connection failed for the maximum
+     * number of re-tries (WIFI_FAIL_BIT). The bits are set by event_handler() (see above) */
+    EventBits_t bits = xEventGroupWaitBits(s_wifi_event_group,
+                                           WIFI_CONNECTED_BIT | WIFI_FAIL_BIT,
+                                           pdFALSE,
+                                           pdFALSE,
+                                           portMAX_DELAY);
+
+    /* xEventGroupWaitBits() returns the bits before the call returned, hence we can test which event actually
+     * happened. */
+    if (bits & WIFI_CONNECTED_BIT)
+    {
+        ESP_LOGI(TAG, "connected to ap SSID:%s password:%s",
+                 CONFIG_ESP_WIFI_SSID, CONFIG_ESP_WIFI_PASSWORD);
+    }
+    else if (bits & WIFI_FAIL_BIT)
+    {
+        ESP_LOGI(TAG, "Failed to connect to SSID:%s, password:%s",
+                 CONFIG_ESP_WIFI_SSID, CONFIG_ESP_WIFI_PASSWORD);
+    }
+    else
+    {
+        ESP_LOGE(TAG, "UNEXPECTED EVENT");
+    }
+}
+
+static void wifi_connect_task(void *pvParameters)
+{
+    wifi_init_sta();
+    ESP_LOGI(TAG, "Successfully Connected to AP");
+    xEventGroupSetBits(my_event_group, WIFI_CONNECTED);
+    vTaskDelete(NULL);
+}
+
+/**
+ * 时间部分
+ */
+time_t now;
+struct tm timeinfo;
+
+static void get_time_task(void *pvParameters)
+{
+    xEventGroupWaitBits(my_event_group, WIFI_CONNECTED, pdFALSE, pdFALSE, portMAX_DELAY);
+
+    esp_sntp_config_t config = ESP_NETIF_SNTP_DEFAULT_CONFIG("pool.ntp.org");
+    esp_netif_sntp_init(&config);
+    // wait for time to be set
+    int retry = 0;
+    const int retry_count = 6;
+    while (esp_netif_sntp_sync_wait(2000 / portTICK_PERIOD_MS) == ESP_ERR_TIMEOUT && ++retry < retry_count)
+    {
+        ESP_LOGI(TAG, "Waiting for system time to be set... (%d/%d)", retry, retry_count);
+    }
+
+    if (retry > 5)
+    {
+        esp_restart(); // 没有获取到时间的话 重启ESP32
+    }
+
+    esp_netif_sntp_deinit();
+    // 设置时区
+    setenv("TZ", "CST-8", 1);
+    tzset();
+    // 获取系统时间
+    time(&now);
+    localtime_r(&now, &timeinfo);
+    xEventGroupSetBits(my_event_group, GET_SNTP);
     vTaskDelete(NULL);
 }
 
@@ -628,9 +720,7 @@ void app_main(void)
     // ESP_EFUSE_VDD_SPI_AS_GPIO
     esp_efuse_write_field_bit(ESP_EFUSE_VDD_SPI_AS_GPIO);
 
-    ESP_ERROR_CHECK(esp_netif_init());
-
-    // initialize the audio board
+    // initialize the audio board, including I2C, I2S
     audio_board_handle_t board_handle = audio_board_init();
     audio_hal_ctrl_codec(board_handle->audio_hal, AUDIO_HAL_CODEC_MODE_BOTH, AUDIO_HAL_CTRL_START);
     // initialize the codec(Speaker)
@@ -756,9 +846,12 @@ void app_main(void)
 
     lv_gui_start();
 
-    xTaskCreate(main_page_task, "main_page_task", 2048, NULL, 5, NULL);
-    xTaskCreate(get_weather_task, "get_weather_task", 1024, NULL, 5, NULL);
-    xTaskCreate(sync_time_task, "sync_time_task", 512, NULL, 5, NULL);
+    xTaskCreate(get_weather_task, "get_weather_task", 8192, NULL, 5, NULL);
+    xTaskCreate(get_time_task, "get_time_task", 2048, NULL, 5, NULL);
+    xTaskCreate(wifi_connect_task, "wifi_connect_task", 4096, NULL, 5, NULL);
+    xTaskCreate(main_page_task, "main_page_task", 8192, NULL, 5, NULL);
+    // xTaskCreate(get_weather_task, "get_weather_task", 1024, NULL, 5, NULL);
+    // xTaskCreate(sync_time_task, "sync_time_task", 512, NULL, 5, NULL);
     // AI chat task
     xTaskCreate(ai_chat_task, "ai_chat_task", 8192, NULL, 5, NULL);
 

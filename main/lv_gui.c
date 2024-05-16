@@ -213,6 +213,8 @@ void lv_chat_page(void)
     lv_label_set_text(label2, "AI：");
 }
 
+lv_obj_t *time_label;
+
 void lv_clock_page(void)
 {
     static lv_style_t style;
@@ -229,7 +231,7 @@ void lv_clock_page(void)
 
     create_back_btn(sub_obj);
 
-    lv_obj_t *time_label = lv_label_create(sub_obj);
+    time_label = lv_label_create(sub_obj);
     lv_obj_set_style_text_font(time_label, &font_alipuhui20, 0);
     lv_label_set_text_fmt(time_label, "%02d:%02d:%02d", timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
     lv_obj_center(time_label);
@@ -258,7 +260,7 @@ void lv_weather_page(void)
 
     lv_obj_t *temp_label = lv_label_create(sub_obj);
     lv_obj_set_style_text_font(temp_label, &font_alipuhui20, 0);
-    lv_label_set_text_fmt(temp_label, "%d℃，%d%%", qwnow_temp, qwnow_humi);
+    lv_label_set_text_fmt(temp_label, "%s℃，%s%%", g_temp, g_humidity);
     lv_obj_center(temp_label);
 
     // lv_obj_t *temp_img = lv_img_create(sub_obj);

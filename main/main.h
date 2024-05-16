@@ -11,5 +11,5 @@
 extern float bg_duty;
 extern time_t now;
 extern struct tm timeinfo;
-extern int qwnow_temp;
-extern int qwnow_humi;
+extern char g_temp[10];
+extern char g_humidity[10];
