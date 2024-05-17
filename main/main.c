@@ -286,9 +286,17 @@ static void ai_chat_task(void *args)
         ESP_LOGW(TAG, "is_in_app is 2!");
 
         // FIX: 这个地方由于操作系统的现场保存和恢复似乎不能总是获取最新的值
-        while (is_in_app == 2)
+        while (1)
         {
             audio_event_iface_msg_t msg;
+            int temp_flag = is_in_app;
+            if (temp_flag != 2)
+            {
+                // 说明不是在聊天界面，则不再进行下面的逻辑，且跳出循环
+                ESP_LOGI(TAG, "is_in_app is not 2!");
+                break;
+            }
+            
             if (audio_event_iface_listen(evt, &msg, portMAX_DELAY) != ESP_OK)
             {
                 ESP_LOGW(TAG, "[ * ] Event process failed: src_type:%d, source:%p cmd:%d, data:%p, data_len:%d",
@@ -565,7 +573,6 @@ static void get_weather_task(void *pvParameters)
     get_now_weather();
     ESP_LOGI(TAG, "get_weather_task finish!");
     xEventGroupSetBits(my_event_group, GET_WEATHER);
-
     vTaskDelete(NULL);
 }
 
