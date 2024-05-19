@@ -7,6 +7,7 @@
 *.dylib
 build/
 managed_components/
+components/
 main/*.txt
 *.bak
 
