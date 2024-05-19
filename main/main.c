@@ -164,7 +164,6 @@ void value_update_cb(lv_timer_t *timer)
     // 负责更新时间，但频次为每秒一次
     if (is_in_app == 1)
     {
-        ESP_LOGI(TAG, "time update");
         if (++cnt > 10)
         {
             cnt = 0;
@@ -175,7 +174,6 @@ void value_update_cb(lv_timer_t *timer)
     }
     else if (is_in_app == 2)
     {
-        ESP_LOGI(TAG, "chatting");
         // 负责更新聊天内容
         if (ask_flag == 1)
         {
@@ -198,14 +196,12 @@ void value_update_cb(lv_timer_t *timer)
             lv_label_set_text(label2, "AI：");
         }
     }
-
 }
 
 static void main_page_task(void *pvParameters)
 {
     ESP_LOGI(TAG, "main_page_task");
     xEventGroupWaitBits(my_event_group, GET_WEATHER, pdFALSE, pdFALSE, portMAX_DELAY);
-    // vTaskDelay(pdMS_TO_TICKS(3000));
     lv_obj_clean(lv_scr_act());
     lv_main_page();
     lv_timer_create(value_update_cb, 100, NULL); // create a lv_timer for update the chat message
@@ -220,7 +216,8 @@ static void main_page_task(void *pvParameters)
 /**
  * 按键部分
  */
-// TODO
+
+
 /**
  * AI 聊天部分
  */
@@ -228,7 +225,7 @@ static void ai_chat_task(void *args)
 {
     // 只有用户在菜单中选择了AI聊天功能，才会开启AI聊天任务
     ESP_LOGI(TAG, "ai_chat_task started");
-    xEventGroupWaitBits(my_event_group, WIFI_CONNECTED, pdFALSE, pdFALSE, portMAX_DELAY);
+    xEventGroupWaitBits(my_event_group, GET_WEATHER, pdFALSE, pdFALSE, portMAX_DELAY);
 
     /* Peripheral Manager */
     // Initialize peripherals management
@@ -272,31 +269,13 @@ static void ai_chat_task(void *args)
     audio_event_iface_set_listener(esp_periph_set_get_event_iface(set), evt);
 
     ESP_LOGI(TAG, "Chat app Ready!");
-    printf("in app_main the min free stack size is %d \r\n", (int32_t)uxTaskGetStackHighWaterMark(NULL));
 
     while (1)
     {
-        if (is_in_app != 2)
-        {
-            // 说明此时不是在聊天界面，则不再进行下面的逻辑
-            vTaskDelay(pdMS_TO_TICKS(100));
-            continue;
-        }
-
-        ESP_LOGW(TAG, "is_in_app is 2!");
-
-        // FIX: 这个地方由于操作系统的现场保存和恢复似乎不能总是获取最新的值
         while (1)
         {
             audio_event_iface_msg_t msg;
-            int temp_flag = is_in_app;
-            if (temp_flag != 2)
-            {
-                // 说明不是在聊天界面，则不再进行下面的逻辑，且跳出循环
-                ESP_LOGI(TAG, "is_in_app is not 2!");
-                break;
-            }
-            
+
             if (audio_event_iface_listen(evt, &msg, portMAX_DELAY) != ESP_OK)
             {
                 ESP_LOGW(TAG, "[ * ] Event process failed: src_type:%d, source:%p cmd:%d, data:%p, data_len:%d",
@@ -308,6 +287,8 @@ static void ai_chat_task(void *args)
             if (baidu_tts_check_event_finish(tts, &msg))
             {
                 ESP_LOGI(TAG, "[ * ] TTS Finish");
+                // release the mp3 buffer
+                baidu_tts_stop(tts);
                 es8311_pa_power(false); // close the speaker
                 continue;
             }
@@ -326,39 +307,43 @@ static void ai_chat_task(void *args)
 
             // if the program comes here, it means the button is the record button,
             // and check the event is from button up or down
-            if (msg.cmd == PERIPH_BUTTON_PRESSED)
+            if (msg.cmd == PERIPH_BUTTON_PRESSED && is_in_app == 2)
             {
+                ESP_LOGI(TAG, "Button pressed");
                 baidu_tts_stop(tts);
                 lcd_clear_flag = 1;
                 baidu_stt_start(stt);
             }
             else if (msg.cmd == PERIPH_BUTTON_RELEASE || msg.cmd == PERIPH_BUTTON_LONG_RELEASE)
             {
-                char *original_text = baidu_stt_stop(stt);
-                if (original_text == NULL)
+                if (is_in_app == 2)
                 {
+                    char *original_text = baidu_stt_stop(stt);
+                    if (original_text == NULL)
+                    {
 #if USE_MINIMAX
-                    minimax_content[0] = 0; // clear the minimax_content, just make the first element be 0
+                        minimax_content[0] = 0; // clear the minimax_content, just make the first element be 0
 #elif USE_DEEPSEEK
-                    deepseek_content[0] = 0; // clear the deepseek_content, just make the first element be 0
+                        deepseek_content[0] = 0; // clear the deepseek_content, just make the first element be 0
 #endif
-                    continue;
-                }
-                ESP_LOGI(TAG, "Original text = %s", original_text);
-                ask_flag = 1;
+                        continue;
+                    }
+                    ESP_LOGI(TAG, "Original text = %s", original_text);
+                    ask_flag = 1;
 #if USE_MINIMAX
-                char *answer = minimax_chat(original_text);
+                    char *answer = minimax_chat(original_text);
 #elif USE_DEEPSEEK
-                char *answer = deepseek_chat(original_text);
+                    char *answer = deepseek_chat(original_text);
 #endif
-                if (answer == NULL)
-                {
-                    continue;
+                    if (answer == NULL)
+                    {
+                        continue;
+                    }
+                    ESP_LOGI(TAG, "Answer = %s", answer);
+                    answer_flag = 1;
+                    es8311_pa_power(true); // open the speaker
+                    baidu_tts_start(tts, answer);
                 }
-                ESP_LOGI(TAG, "Answer = %s", answer);
-                answer_flag = 1;
-                es8311_pa_power(true); // open the speaker
-                baidu_tts_start(tts, answer);
             }
         }
         ESP_LOGI(TAG, "Stop audio_pipeline");
@@ -518,15 +503,15 @@ static void get_now_weather(void)
     int https_status = 0;
     int64_t gzip_len = 0;
     int dstBufLen = 1024;
-    char* dstBuf= (char*)malloc(1024);
-    
+    char *dstBuf = (char *)malloc(1024);
+
     memset(dstBuf, 0, 1024);
 
     esp_http_client_config_t config = {
         .url = "https://devapi.qweather.com/v7/weather/now?location=101280102&key=52f795b81e974f46b5f0a533c0372ff1",
         .event_handler = _http_event_handler,
         .crt_bundle_attach = esp_crt_bundle_attach,
-        .user_data = local_response_buffer,        // Pass address of local buffer to get response
+        .user_data = local_response_buffer, // Pass address of local buffer to get response
     };
     esp_http_client_handle_t client = esp_http_client_init(&config);
     esp_err_t err = esp_http_client_perform(client);
@@ -534,9 +519,12 @@ static void get_now_weather(void)
     https_status = esp_http_client_get_status_code(client);
     gzip_len = esp_http_client_get_content_length(client);
 
-    if (err == ESP_OK) {
-        ESP_LOGI(TAG, "HTTPS Status = %d, content_length = %"PRIu64, https_status, gzip_len);
-    } else {
+    if (err == ESP_OK)
+    {
+        ESP_LOGI(TAG, "HTTPS Status = %d, content_length = %" PRIu64, https_status, gzip_len);
+    }
+    else
+    {
         ESP_LOGE(TAG, "Error perform http request %s", esp_err_to_name(err));
     }
     esp_http_client_cleanup(client);
@@ -545,13 +533,14 @@ static void get_now_weather(void)
     {
         int ret = gzDecompress(local_response_buffer, gzip_len, dstBuf, &dstBufLen);
 
-        if (Z_STREAM_END == ret) { /* 解压成功 */
+        if (Z_STREAM_END == ret)
+        { /* 解压成功 */
             printf("decompress success\n");
             printf("dstBufLen = %d\n", dstBufLen);
             cJSON *root = cJSON_Parse(dstBuf);
-            cJSON *now = cJSON_GetObjectItem(root,"now");
-            char *temp = cJSON_GetObjectItem(now,"temp")->valuestring;
-            char *humidity = cJSON_GetObjectItem(now,"humidity")->valuestring;
+            cJSON *now = cJSON_GetObjectItem(root, "now");
+            char *temp = cJSON_GetObjectItem(now, "temp")->valuestring;
+            char *humidity = cJSON_GetObjectItem(now, "humidity")->valuestring;
             strcpy(g_temp, temp);
             strcpy(g_humidity, humidity);
             ESP_LOGI(TAG, "地区：广州市番禺区");
@@ -560,7 +549,8 @@ static void get_now_weather(void)
             cJSON_Delete(root);
             free(dstBuf);
         }
-        else {
+        else
+        {
             printf("decompress failed:%d\n", ret);
             free(dstBuf);
         }
@@ -695,7 +685,7 @@ static void get_time_task(void *pvParameters)
 {
     xEventGroupWaitBits(my_event_group, WIFI_CONNECTED, pdFALSE, pdFALSE, portMAX_DELAY);
 
-    esp_sntp_config_t config = ESP_NETIF_SNTP_DEFAULT_CONFIG("pool.ntp.org");
+    esp_sntp_config_t config = ESP_NETIF_SNTP_DEFAULT_CONFIG("ntp.aliyun.com");
     esp_netif_sntp_init(&config);
     // wait for time to be set
     int retry = 0;

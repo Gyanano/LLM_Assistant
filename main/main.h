@@ -3,8 +3,8 @@
 #include "time.h"
 #include "driver/ledc.h"
 
-#define USE_MINIMAX         0
-#define USE_DEEPSEEK        1
+#define USE_MINIMAX         1
+#define USE_DEEPSEEK        0
 
 // W (28461) AUDIO_THREAD: Make sure selected the `CONFIG_SPIRAM_BOOT_INIT` and `CONFIG_SPIRAM_ALLOW_STACK_EXTERNAL_MEMORY` by `make menuconfig`
 

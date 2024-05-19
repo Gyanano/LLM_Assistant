@@ -15,6 +15,7 @@ int is_wifi_connected = 0;
 static int count = 0;
 
 LV_IMG_DECLARE(img_bilibili120);
+LV_FONT_DECLARE(font_led);
 LV_FONT_DECLARE(font_alipuhui20);
 
 void back_event_handler(lv_event_t *e)
@@ -75,25 +76,7 @@ void lv_gui_start(void)
     lv_label_set_text(label_wifi_info, "初始化系统...");
 }
 
-/*
-void lv_gui_load(const char* text)
-{
-    lv_obj_set_style_bg_color(lv_scr_act(), lv_color_hex(0xffffff), 0);
-
-    static lv_style_t style;
-    default_style_init(&style);
-
-    lv_obj_t *gif_start = lv_gif_create(lv_scr_act());
-    lv_gif_set_src(gif_start, &img_bilibili120);
-    lv_obj_align(gif_start, LV_ALIGN_CENTER, 0, -20);
-
-    label_wifi_info = lv_label_create(lv_scr_act());
-    lv_obj_align(label_wifi_info, LV_ALIGN_BOTTOM_MID, 0, -35);
-    lv_obj_set_style_text_font(label_wifi_info, &font_alipuhui20, LV_STATE_DEFAULT);
-    lv_label_set_text_fmt(label_wifi_info, "%s...", text);
-}*/
-
-void clock_event_handler(lv_event_t *e)
+void menu_event_handler(lv_event_t *e)
 {
     int selected_icon = lv_event_get_user_data(e);
     is_in_app = selected_icon;
@@ -148,7 +131,7 @@ void lv_main_page(void)
     lv_obj_add_style(icon_clock, &icon_style, 0);
     lv_obj_set_style_bg_color(icon_clock, lv_color_hex(0xffffff), 0);
     lv_obj_set_pos(icon_clock, 40, 10);
-    lv_obj_add_event_cb(icon_clock, clock_event_handler, LV_EVENT_CLICKED, 1);
+    lv_obj_add_event_cb(icon_clock, menu_event_handler, LV_EVENT_CLICKED, 1);
     lv_obj_t *img_clock = lv_img_create(icon_clock);
     LV_IMG_DECLARE(_clock_alpha_60x60);
     lv_img_set_src(img_clock, &_clock_alpha_60x60);
@@ -159,7 +142,7 @@ void lv_main_page(void)
     lv_obj_add_style(icon_chat, &icon_style, 0);
     lv_obj_set_style_bg_color(icon_chat, lv_color_hex(0xffffff), 0);
     lv_obj_set_pos(icon_chat, 160, 10);
-    lv_obj_add_event_cb(icon_chat, clock_event_handler, LV_EVENT_CLICKED, 2);
+    lv_obj_add_event_cb(icon_chat, menu_event_handler, LV_EVENT_CLICKED, 2);
     lv_obj_t *img_chat = lv_img_create(icon_chat);
     LV_IMG_DECLARE(_message_alpha_80x80);
     lv_img_set_src(img_chat, &_message_alpha_80x80);
@@ -170,7 +153,7 @@ void lv_main_page(void)
     lv_obj_add_style(icon_weather, &icon_style, 0);
     lv_obj_set_style_bg_color(icon_weather, lv_color_hex(0xffffff), 0);
     lv_obj_set_pos(icon_weather, 40, 120);
-    lv_obj_add_event_cb(icon_weather, clock_event_handler, LV_EVENT_CLICKED, 3);
+    lv_obj_add_event_cb(icon_weather, menu_event_handler, LV_EVENT_CLICKED, 3);
     lv_obj_t *img_weather = lv_img_create(icon_weather);
     LV_IMG_DECLARE(_weather_alpha_80x80);
     lv_img_set_src(img_weather, &_weather_alpha_80x80);
@@ -181,7 +164,7 @@ void lv_main_page(void)
     lv_obj_add_style(icon_setting, &icon_style, 0);
     lv_obj_set_style_bg_color(icon_setting, lv_color_hex(0xffffff), 0);
     lv_obj_set_pos(icon_setting, 160, 120);
-    lv_obj_add_event_cb(icon_setting, clock_event_handler, LV_EVENT_CLICKED, 4);
+    lv_obj_add_event_cb(icon_setting, menu_event_handler, LV_EVENT_CLICKED, 4);
     lv_obj_t *img_setting = lv_img_create(icon_setting);
     LV_IMG_DECLARE(_setting_alpha_80x80);
     lv_img_set_src(img_setting, &_setting_alpha_80x80);
@@ -219,8 +202,7 @@ void lv_clock_page(void)
 {
     static lv_style_t style;
     default_style_init(&style);
-
-    // maybe need to create a timer to update the time
+    lv_style_set_text_font(&style, &font_led);
 
     // Get the current time
     time(&now);
@@ -232,20 +214,10 @@ void lv_clock_page(void)
     create_back_btn(sub_obj);
 
     time_label = lv_label_create(sub_obj);
-    lv_obj_set_style_text_font(time_label, &font_alipuhui20, 0);
+    lv_obj_set_style_text_font(time_label, &font_led, 20);
     lv_label_set_text_fmt(time_label, "%02d:%02d:%02d", timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
     lv_obj_center(time_label);
-    // lv_obj_set_pos(time_label, 142, 42);
-
-    // lv_obj_t *temp_img = lv_img_create(sub_obj);
-    // lv_obj_add_flag(temp_img, LV_OBJ_FLAG_CLICKABLE);
-    // LV_IMG_DECLARE(_clock_alpha_60x60);
-    // lv_img_set_src(temp_img, &_clock_alpha_60x60);
-    // lv_img_set_pivot(temp_img, 40, 40);
-    // lv_img_set_angle(temp_img, 0);
-    // lv_obj_set_pos(temp_img, 120 + 10, 80 + 10);
-    // Write style for temp_img_1, Part: LV_PART_MAIN, State: LV_STATE_DEFAULT.
-    // lv_obj_set_style_img_opa(temp_img, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+    // lv_obj_align(time_label, LV_ALIGN_CENTER, 0, 0);
 }
 
 void lv_weather_page(void)
@@ -259,21 +231,13 @@ void lv_weather_page(void)
     create_back_btn(sub_obj);
 
     lv_obj_t *temp_label = lv_label_create(sub_obj);
+    lv_obj_t *addr_label = lv_label_create(sub_obj);
     lv_obj_set_style_text_font(temp_label, &font_alipuhui20, 0);
+    lv_obj_set_style_text_font(addr_label, &font_alipuhui20, 0);
+    lv_label_set_text(addr_label, "广州番禺");
     lv_label_set_text_fmt(temp_label, "%s℃，%s%%", g_temp, g_humidity);
-    lv_obj_center(temp_label);
-
-    // lv_obj_t *temp_img = lv_img_create(sub_obj);
-    // lv_obj_add_flag(temp_img, LV_OBJ_FLAG_CLICKABLE);
-    // LV_IMG_DECLARE(_weather_alpha_80x80);
-    // lv_img_set_src(temp_img, &_weather_alpha_80x80);
-    // lv_img_set_pivot(temp_img, 40, 40);
-    // lv_img_set_angle(temp_img, 0);
-    // lv_obj_set_pos(temp_img, 120, 80);
-    // lv_obj_set_size(temp_img, 80, 80);
-
-    // Write style for temp_img_1, Part: LV_PART_MAIN, State: LV_STATE_DEFAULT.
-    // lv_obj_set_style_img_opa(temp_img, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_align(addr_label, LV_ALIGN_CENTER, 0, -10);
+    lv_obj_align(temp_label, LV_ALIGN_CENTER, 0, 10);
 }
 
 static void slider_event_cb(lv_event_t *e)

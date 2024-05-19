@@ -1990,14 +1990,6 @@ CONFIG_LV_BUILD_EXAMPLES=y
 # end of LVGL configuration
 
 #
-# jsmn
-#
-# CONFIG_JSMN_PARENT_LINKS is not set
-# CONFIG_JSMN_STRICT is not set
-# CONFIG_JSMN_STATIC is not set
-# end of jsmn
-
-#
 # DSP Library
 #
 CONFIG_DSP_ANSI=y
@@ -2011,6 +2003,14 @@ CONFIG_DSP_MAX_FFT_SIZE_4096=y
 # CONFIG_DSP_MAX_FFT_SIZE_32768 is not set
 CONFIG_DSP_MAX_FFT_SIZE=4096
 # end of DSP Library
+
+#
+# jsmn
+#
+# CONFIG_JSMN_PARENT_LINKS is not set
+# CONFIG_JSMN_STRICT is not set
+# CONFIG_JSMN_STATIC is not set
+# end of jsmn
 # end of Component config
 
 # CONFIG_IDF_EXPERIMENTAL_FEATURES is not set
